@@ -100,3 +100,11 @@ Checksums are now generated with the archive. Tag pushes run the same tests and 
 The editor now emits `version.json` with the package version and commit build ID. A client compares its own build ID with that file every minute and on focus, so a stale cached client can show **Update app** even when its service-worker registration never reaches `waiting`. Clicking it removes only this app's registration and caches, then reloads; GitHub Pages shares one origin, so other projects are untouched.
 
 Tested by publishing a `version.json` with a different build ID against the local production bundle: the button appeared within one focus check, and clicking it replaced the old script with the new one. The same flow was repeated on the hosted site after `v0.7.1`: an old `index-Co6piRT8` client showed **Update app**, and clicking it loaded `index-HDpFxAmZ`. The local install then updated from `0.2.0` state through `fiiofixer-update` to `0.7.2`, reporting the running helper version each time and refusing to reinstall an equal version. An intentionally stale `0.7.0` updater run installed `0.6.0` because the published release was older than the local build; the comparison was corrected and the older-version cases now exit early.
+
+## v0.7.2 bootstrap on a pre-updater install
+
+A second Linux machine was still running `0.6.0`. Its `PwaControl` predates the `version.json` comparison, so it offers **Update app** only when a service worker reaches `waiting`; a local helper whose files never change never produces one, and `0.6.0` installs no `fiiofixer-update`. The button and the command therefore could not appear, no matter how many times the app was reloaded.
+
+Bootstrapped once from the published `v0.7.2` archive: downloaded `fiiofixer-0.7.2-linux.tar.gz` and its `.sha256`, verified the checksum, then ran `scripts/install-linux.sh`. The login service restarted, `/api/status` and `/version.json` both report `0.7.2`, the bundle and `version.json` share the same build ID, and `fiiofixer-update` reports "Nothing newer to install." The 0.7.2 editor was loaded through a loopback tunnel, showed Connect, and raised no false update prompt.
+
+Any install older than `0.7.0` needs this one-time installer run; those builds cannot see or run the updater. No hardware read or write was attempted during this check.
