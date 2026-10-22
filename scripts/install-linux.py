@@ -3,6 +3,7 @@ import argparse
 from html.parser import HTMLParser
 import json
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import sys
@@ -47,7 +48,7 @@ if service_available and unit.exists():
 for relative in ['dist', 'bridge', 'scripts']:
     (app / relative).mkdir(parents=True, exist_ok=True)
 shutil.copytree(source / 'dist', app / 'dist', dirs_exist_ok=True)
-for relative in ['bridge/server.py', 'bridge/bluez_control.py', 'bridge/eq_control.py', 'bridge/requirements.txt', 'scripts/launch-linux.py']:
+for relative in ['bridge/server.py', 'bridge/bluez_control.py', 'bridge/eq_control.py', 'bridge/requirements.txt', 'scripts/launch-linux.py', 'scripts/update-linux.sh']:
     shutil.copy2(source / relative, app / relative)
 for relative in ['README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md']:
     shutil.copy2(source / relative, app / relative)
@@ -57,6 +58,9 @@ bin_dir.mkdir(parents=True, exist_ok=True)
 launcher = bin_dir / 'fiiofixer'
 launcher.write_text('#!/usr/bin/env python3\nimport runpy\nrunpy.run_path(' + repr(str(app / 'scripts/launch-linux.py')) + ', run_name="__main__")\n')
 launcher.chmod(0o755)
+updater = bin_dir / 'fiiofixer-update'
+updater.write_text('#!/usr/bin/env bash\nexec bash ' + shlex.quote(str(app / 'scripts/update-linux.sh')) + ' "$@"\n')
+updater.chmod(0o755)
 applications = prefix / 'share/applications'
 applications.mkdir(parents=True, exist_ok=True)
 def desktop_quote(path):
@@ -70,5 +74,6 @@ if service:
     subprocess.run(['systemctl', '--user', 'daemon-reload'], check=True)
     subprocess.run(['systemctl', '--user', 'enable', '--now', 'fiiofixer.service'], check=True)
 print(f'Installed FiiOFixer. Open it from your app menu or run {launcher}.')
+print(f'Update later with {updater}.')
 print('Starts at login.' if service else 'Bluetooth helper starts when you open the app.')
 print('Presets stay in your browser. Use Library backup to move them.')

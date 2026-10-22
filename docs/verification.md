@@ -90,3 +90,13 @@ For a live race, the simulated helper held a -1 dB write while a newer -2 dB edi
 All 49 TypeScript and 49 Python tests and the production build passed. These v0.6 browser checks are simulations, not new acoustic measurements. The checked whole-curve and activation commands were physically verified in v0.5; the running v0.5.1 helper is compatible with this frontend. Updating the installed static frontend does not require a helper restart.
 
 Review follow-ups verified that Apply and Live EQ started from Flat retain the pre-comparison original in Previous EQ. A quota failure sends no write and preserves the known processing state. The separate comparison matcher rejects another device or a changed hardware frame.
+
+## v0.7.2 release and update path
+
+The hosted site built from `main` was serving the new editor while the running Linux install was still `0.2.0`; the newest GitHub release was `0.6.0`. The version numbers had only ever been edited by hand, no workflow created releases, and the login service kept serving the old copied `dist`.
+
+Checksums are now generated with the archive. Tag pushes run the same tests and packaging as `main`, then create a GitHub release with both assets; `main` still only deploys the Pages site. Verified on the real pipeline runs for `v0.7.0` and `v0.7.1`: build, deploy, and release all succeeded, and the published checksum matched the downloaded archive.
+
+The editor now emits `version.json` with the package version and commit build ID. A client compares its own build ID with that file every minute and on focus, so a stale cached client can show **Update app** even when its service-worker registration never reaches `waiting`. Clicking it removes only this app's registration and caches, then reloads; GitHub Pages shares one origin, so other projects are untouched.
+
+Tested by publishing a `version.json` with a different build ID against the local production bundle: the button appeared within one focus check, and clicking it replaced the old script with the new one. The same flow was repeated on the hosted site after `v0.7.1`: an old `index-Co6piRT8` client showed **Update app**, and clicking it loaded `index-HDpFxAmZ`. The local install then updated from `0.2.0` state through `fiiofixer-update` to `0.7.2`, reporting the running helper version each time and refusing to reinstall an equal version. An intentionally stale `0.7.0` updater run installed `0.6.0` because the published release was older than the local build; the comparison was corrected and the older-version cases now exit early.

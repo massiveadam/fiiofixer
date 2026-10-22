@@ -30,8 +30,10 @@ The installer copies the app into `~/.local/share/fiiofixer`, adds a launcher at
 To update an existing install to the newest published release:
 
 ```bash
-bash scripts/update-linux.sh
+fiiofixer-update
 ```
+
+The installer also places this command in `~/.local/bin`. Running `bash scripts/update-linux.sh` from an extracted release or this repository does the same thing.
 
 The updater downloads the latest release archive, verifies its SHA-256 checksum, and runs the installer. Prefer it over installing a stale tarball you already have on disk: the app reports its version under **Install & share**, and an older installed package cannot see releases published after it.
 
