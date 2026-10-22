@@ -11,7 +11,7 @@ export function readTheme(): Theme {
 
 export function applyTheme(theme: Theme): void {
   document.documentElement.dataset.theme = theme;
-  document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content',theme === 'dracula' ? '#17141f' : '#eaf0f5');
+  document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute('content',theme === 'dracula' ? '#130f1b' : '#eaf0f5');
   const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
   if (icon) { lightIcon ??= icon.href; icon.href = theme === 'dracula' ? draculaIcon : lightIcon; }
 }

@@ -28,7 +28,7 @@ export default defineConfig({
       icons: [{ src: 'icon-192.png', sizes: '192x192', type: 'image/png' }, { src: 'icon-512.png', sizes: '512x512', type: 'image/png' }],
     },
     workbox: {
-      globPatterns: ['**/*.{js,css,html,svg,png,woff,woff2}'],
+      globPatterns: ['**/*.{js,css,html,svg,png,mp3,woff,woff2}'],
       navigateFallbackDenylist: [/\/api\//],
       // Bluetooth sessions, tokens, and replies must always come from the live helper.
       runtimeCaching: [],

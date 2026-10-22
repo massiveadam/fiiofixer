@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { Sun } from 'lucide-react';
+import { Sun, Volume2, VolumeX } from 'lucide-react';
 import { applyTheme, readTheme, THEME_KEY } from './theme';
 import draculaPortrait from './assets/dracula-portrait.svg';
-import { BatSwarm } from './BatSwarm';
+import { DraculaAtmosphere } from './DraculaAtmosphere';
+import { DraculaSequence } from './DraculaSequence';
+import { isSoundMuted, playDraculaSting, setSoundMuted } from './draculaSound';
 
 export function DraculaMark({ size = 24 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" aria-hidden="true">
@@ -29,8 +31,9 @@ export function DraculaPortrait() {
 
 export function ThemeControl() {
   const [theme, setTheme] = useState(readTheme);
-  const [swarming, setSwarming] = useState(false);
-  const [swarmKey, setSwarmKey] = useState(0);
+  const [sequencing, setSequencing] = useState(false);
+  const [sequenceKey, setSequenceKey] = useState(0);
+  const [muted, setMuted] = useState(isSoundMuted);
   const dark = theme === 'dracula';
 
   function toggle(): void {
@@ -40,21 +43,26 @@ export function ThemeControl() {
     try { localStorage.setItem(THEME_KEY, next); } catch { /* Appearance still changes when storage is unavailable. */ }
 
     if (next === 'dracula') {
+      playDraculaSting();
       const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
       if (!reducedMotion) {
-        setSwarmKey(k => k + 1);
-        setSwarming(true);
+        setSequenceKey(k => k + 1);
+        setSequencing(true);
       }
     } else {
-      setSwarming(false);
+      setSequencing(false);
     }
   }
 
   return <>
+    <DraculaAtmosphere/>
+    {dark && <button type="button" className="theme-switch sound-switch" aria-label={muted ? 'Unmute Dracula sound' : 'Mute Dracula sound'} aria-pressed={muted} title={muted ? 'Dracula sound is muted' : 'Dracula sound plays on the computer speakers'} onClick={() => { const next = !muted; setSoundMuted(next); setMuted(next); }}>
+      {muted ? <VolumeX size={19}/> : <Volume2 size={19}/>}
+    </button>}
     <button type="button" className="theme-switch" aria-label="Dracula theme" aria-pressed={dark} title={dark ? 'Return to light theme' : 'Turn on Dracula theme'} onClick={toggle}>
       {dark ? <Sun size={21}/> : <DraculaMark size={25}/>}
       <span className="theme-switch-label">{dark ? 'Daylight' : 'Dracula'}</span>
     </button>
-    {swarming && <BatSwarm key={swarmKey} onComplete={() => setSwarming(false)} />}
+    {sequencing && <DraculaSequence key={sequenceKey} onComplete={() => setSequencing(false)} />}
   </>;
 }

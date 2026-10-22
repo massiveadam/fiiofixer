@@ -7,11 +7,11 @@
 .preset-icon>span{line-height:0}
 .theme-switch{position:relative;z-index:20;width:40px;height:40px;flex-shrink:0;display:grid;place-items:center;border:1px solid var(--control-border);border-radius:50%;background:var(--surface);color:var(--blue);box-shadow:0 5px 20px #00000014}
 .theme-switch:hover{border-color:var(--blue);background:var(--hover)}
-.theme-switch-label{position:absolute;right:calc(100% + 10px);padding:7px 11px;border:1px solid var(--control-border);border-radius:6px;background:var(--surface);color:var(--ink);font-size:11px;white-space:nowrap;pointer-events:none;opacity:0;transform:translateX(4px);transition:opacity .12s,transform .12s}
+.theme-switch-label{position:absolute;top:calc(100% + 8px);right:0;padding:7px 11px;border:1px solid var(--control-border);border-radius:6px;background:var(--surface);color:var(--ink);font-size:11px;white-space:nowrap;pointer-events:none;opacity:0;transform:translateY(-4px);transition:opacity .12s,transform .12s}
 .theme-switch:hover .theme-switch-label,.theme-switch:focus-visible .theme-switch-label{opacity:1;transform:none}
 html[data-theme="dracula"]{
   color-scheme:dark;
-  --ink:#f4e9e4;--canvas:#17141f;--blue:#e5b0cd;--orange:#ff748e;--line:#493044;--muted:#bcaaba;
+  --ink:#f4e9e4;--canvas:#130f1b;--blue:#e5b0cd;--orange:#ff748e;--line:#493044;--muted:#bcaaba;
   --surface:#231c2b;--chrome-line:#543247;--separator:#69465d;--control-border:#765367;
   --hover:#3c283d;--accent-hover:#b93250;--quiet-hover:#39263b;--rail-line:#543247;
   --status-idle:#9c83a3;--success:#a4d8b4;--preset-active:#452737;--preset-hover:#302033;
@@ -24,9 +24,9 @@ html[data-theme="dracula"]{
   --info-bg:#342237;--info-ink:#e9bed7;--backdrop:#09070ddd;--field-border:#765367;
   --file-bg:#302033;--file-ink:#f4e9e4;--segment-bg:#1c1723;--segment-hover:#462b40;
   --curve:#f16c86;--handle-halo:#50283c;--handle-border:#eeb4c8;
-  --vampire-red:#ff718b;--vampire-ivory:#fff1df;background:#17141f;
+  --vampire-red:#ff718b;--vampire-ivory:#fff1df;background:#130f1b;
 }
-html[data-theme="dracula"] body{background:radial-gradient(ellipse at 5% 12%,#54213b35,transparent 45%),radial-gradient(ellipse at 95% 0,#4c355a30,transparent 50%);min-height:100vh}
+html[data-theme="dracula"] body{background:radial-gradient(ellipse at 5% 12%,#5a1f4040,transparent 45%),radial-gradient(ellipse at 95% 0,#4a2f6440,transparent 52%),radial-gradient(ellipse at 50% 108%,#5c102a40,transparent 60%);min-height:100vh}
 html[data-theme="dracula"] ::selection{background:#7a3554;color:#fff1df}
 html[data-theme="dracula"] .day-copy{display:none}
 html[data-theme="dracula"] .night-copy{display:inline}
@@ -84,19 +84,96 @@ html[data-theme="dracula"] .modal h2::after{content:'';display:block;margin-top:
 }
 @media(max-width:480px){.topbar{height:auto;min-height:68px;padding:14px 0;flex-wrap:wrap;row-gap:10px}.header-actions{margin-left:auto}}
 
+/* Ambient Dracula scenery: fog, cobwebs, a blood moon, drifting bats and drips. */
+.dracula-atmosphere,.dracula-drips{display:none}
+html[data-theme="dracula"] .app-shell{position:relative;z-index:0}
+html[data-theme="dracula"] .dracula-atmosphere{display:block;position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
+html[data-theme="dracula"] .dracula-drips{display:block;position:absolute;left:0;right:0;top:100%;height:130px;z-index:-1;pointer-events:none}
+.dracula-fog{position:absolute;inset:-25% -15%;background:radial-gradient(55% 38% at 18% 28%,#7a33504d,transparent 70%),radial-gradient(48% 34% at 78% 62%,#43305c47,transparent 72%),radial-gradient(70% 46% at 52% 92%,#571f3a3d,transparent 76%);filter:blur(34px);animation:dracula-fog 30s ease-in-out infinite alternate}
+.dracula-vignette{position:absolute;inset:0;background:radial-gradient(125% 95% at 50% 38%,transparent 50%,#06040ae0 100%)}
+.dracula-moon{position:absolute;top:-58px;right:-24px;width:min(18vw,210px);aspect-ratio:1;border-radius:50%;background:radial-gradient(circle at 38% 36%,#ffb59a,#d2455f 52%,#6d1533 78%);box-shadow:0 0 140px 44px #ff2b5340,inset -18px -18px 54px #4a0c22;opacity:.34;filter:blur(.3px);animation:dracula-moon-glow 9s ease-in-out infinite}
+.dracula-cobweb{position:absolute;width:190px;height:190px;color:#c69ab8;opacity:.5;filter:drop-shadow(0 0 3px #00000080)}
+.dracula-cobweb .cobweb-art{width:100%;height:100%}
+.dracula-cobweb.tl{top:-8px;left:-8px}
+.dracula-cobweb.tr{top:-8px;right:-8px;transform:scaleX(-1)}
+.dracula-cobweb.bl{bottom:-8px;left:-8px;transform:scaleY(-1)}
+.dracula-cobweb.br{bottom:-8px;right:-8px;transform:scale(-1,-1)}
+.dracula-backbats{position:absolute;inset:0}
+.dracula-backbat{position:absolute;left:0;width:130px;height:130px;transform-origin:center}
+.backbat-art{width:100%;height:100%;fill:#0a0710;opacity:.17;filter:blur(1.6px);animation:dracula-backbat 56s linear infinite}
+.dracula-backbat:nth-child(1) .backbat-art{animation-duration:58s;animation-delay:-6s}
+.dracula-backbat:nth-child(2) .backbat-art{animation-duration:76s;animation-delay:-30s}
+.dracula-backbat:nth-child(3) .backbat-art{animation-duration:66s;animation-delay:-48s}
+.dracula-backbat:nth-child(4) .backbat-art{animation-duration:90s;animation-delay:-20s}
+.dracula-drips::before{content:'';position:absolute;left:0;right:0;top:0;height:5px;background:linear-gradient(90deg,transparent,#8f1a34,#e2455f 35%,#a11f3c 60%,#e2455f 80%,transparent);filter:blur(1.4px);opacity:.85;animation:dracula-ooze 7s ease-in-out infinite}
+.dracula-drip{position:absolute;top:0;height:0;border-radius:0 0 46% 46%;background:linear-gradient(180deg,#5c0a1a,#b81e3b 66%,#e2455f);box-shadow:0 0 9px #c0203f99,inset 0 0 3px #ff8a9c66;transform-origin:top center;animation-name:dracula-drip;animation-iteration-count:1;animation-fill-mode:forwards;animation-timing-function:cubic-bezier(.5,0,.9,.4)}
+.dracula-drip::after{content:'';position:absolute;left:50%;bottom:-6px;width:10px;height:13px;margin-left:-5px;border-radius:50%;background:radial-gradient(circle at 38% 32%,#ffb3c1,#d33754 62%,#7d0f24);box-shadow:0 0 9px #e2455fb3;animation:dracula-bead 3.4s ease-in-out infinite}
+.dracula-drip.capillary{border-radius:0 0 50% 50%;background:linear-gradient(180deg,#3f0713,#8f1a34 70%,#c0203f);box-shadow:0 0 5px #8f1a3473;opacity:.75}
+.dracula-drip.capillary::after{width:5px;height:7px;margin-left:-2.5px;bottom:-3px;background:radial-gradient(circle at 40% 35%,#ff9aab,#a11f3c 70%);box-shadow:0 0 5px #c0203f8c}
+.dracula-drop{position:absolute;top:var(--len);height:10px;border-radius:52% 52% 48% 48%;background:linear-gradient(180deg,#ff8a9c,#d33754 45%,#7d0f24);box-shadow:0 0 9px #e2455fb3;opacity:0;transform-origin:top center;animation-name:dracula-drop-fall;animation-iteration-count:infinite;animation-timing-function:cubic-bezier(.55,0,.9,.5)}
+@keyframes dracula-ooze{0%,100%{opacity:.6;filter:blur(1.4px)}50%{opacity:.95;filter:blur(1.8px)}}
+@keyframes dracula-drip{0%{height:0;opacity:0}14%{opacity:1}100%{height:var(--len);opacity:1}}
+@keyframes dracula-bead{0%,100%{transform:scale(.85)}50%{transform:scale(1.15)}}
+@keyframes dracula-drop-fall{0%{opacity:0;transform:translateY(0) scaleY(.5)}12%{opacity:1;transform:translateY(2px) scaleY(1)}70%{opacity:1}100%{opacity:0;transform:translateY(58px) scaleY(1.7)}}
+@keyframes dracula-fog{0%{transform:translate3d(-3%,2%,0) scale(1.06)}100%{transform:translate3d(4%,-3%,0) scale(1.18)}}
+@keyframes dracula-moon-glow{0%,100%{opacity:.42;filter:blur(.3px)}50%{opacity:.62;filter:blur(.6px)}}
+@keyframes dracula-backbat{0%{transform:translateX(-25vw) translateY(0) scale(.8)}50%{transform:translateX(45vw) translateY(-4vh) scale(1.15)}100%{transform:translateX(125vw) translateY(2vh) scale(.9)}}
+
+/* Blood that seeps from the editor chrome and controls. */
+html[data-theme="dracula"] .eq-toolbar{position:relative}
+html[data-theme="dracula"] .eq-toolbar::before{content:'';position:absolute;left:0;right:0;top:-3px;height:3px;background:linear-gradient(90deg,#7d0f24,#e2455f 25%,#7d0f24 50%,#e2455f 75%,#7d0f24);background-size:200% 100%;box-shadow:0 0 12px #e2455f99;animation:dracula-ooze-flow 6s linear infinite}
+html[data-theme="dracula"] .eq-toolbar::after{content:'';position:absolute;left:0;right:0;top:0;height:24px;pointer-events:none;opacity:1;background:radial-gradient(4px 26px at 9% 0,#ff5c7ae6,transparent 72%),radial-gradient(3px 34px at 23% 0,#d33754e6,transparent 74%),radial-gradient(5px 20px at 38% 0,#ff5c7ae6,transparent 70%),radial-gradient(3px 32px at 52% 0,#e2455fe6,transparent 73%),radial-gradient(4px 38px at 67% 0,#ff5c7ae6,transparent 75%),radial-gradient(3px 22px at 81% 0,#d33754e6,transparent 70%),radial-gradient(4px 32px at 93% 0,#ff5c7ae6,transparent 74%)}
+@keyframes dracula-ooze-flow{0%{background-position:0 0}100%{background-position:200% 0}}
+html[data-theme="dracula"] .listening-chamber::after{content:'';position:absolute;left:0;right:0;bottom:0;height:5px;background:linear-gradient(90deg,#5c0a1a,#e2455f 30%,#a11f3c 55%,#e2455f 80%,#5c0a1a);opacity:.7;animation:dracula-ooze 7s ease-in-out infinite}
+html[data-theme="dracula"] .brand-icon{position:relative}
+html[data-theme="dracula"] .brand-icon::after{content:'';position:absolute;top:100%;left:50%;width:4px;height:0;margin-left:-2px;border-radius:0 0 50% 50%;background:linear-gradient(180deg,#8f1a34,#e2455f);box-shadow:0 0 6px #e2455f99;animation:dracula-brand-drip 5.6s ease-in-out infinite}
+@keyframes dracula-brand-drip{0%,72%{height:0;opacity:0}76%{height:0;opacity:1}100%{height:13px;opacity:0}}
+html[data-theme="dracula"] .apply-button{position:relative}
+html[data-theme="dracula"] .apply-button::after,html[data-theme="dracula"] .apply-button::before{content:'';position:absolute;top:100%;border-radius:0 0 50% 50%;background:linear-gradient(180deg,#a11f3c,#e2455f);box-shadow:0 0 6px #e2455f99}
+html[data-theme="dracula"] .apply-button::after{left:22%;width:3px;height:0;animation:dracula-button-drip 4.6s ease-in-out infinite}
+html[data-theme="dracula"] .apply-button::before{left:58%;width:2px;height:0;animation:dracula-button-drip 5.8s ease-in-out .9s infinite}
+@keyframes dracula-button-drip{0%,70%{height:0;opacity:0}74%{height:0;opacity:1}100%{height:16px;opacity:0}}
+html[data-theme="dracula"] .modal{position:relative}
+html[data-theme="dracula"] .modal::before{content:'';position:absolute;left:0;right:0;top:0;height:24px;pointer-events:none;opacity:.8;background:radial-gradient(2px 14px at 14% 0,#e2455fcc,transparent 72%),radial-gradient(2px 22px at 42% 0,#b81e3bcc,transparent 74%),radial-gradient(2px 10px at 68% 0,#e2455fcc,transparent 70%),radial-gradient(2px 18px at 88% 0,#c0203fcc,transparent 73%)}
+
+/* Living theme: flickering candlelight, pulsing crimson and a glowing chamber. */
+html[data-theme="dracula"] .button.primary{animation:dracula-pulse 4.6s ease-in-out infinite}
+html[data-theme="dracula"] .eq-graph>path[stroke="var(--curve)"]{animation:dracula-curve 6.5s ease-in-out infinite}
+html[data-theme="dracula"] .chamber-title p,html[data-theme="dracula"] .dracula-portrait figcaption,html[data-theme="dracula"] .modal h2{animation:dracula-flicker 6.4s ease-in-out infinite}
+html[data-theme="dracula"] .listening-chamber{animation:dracula-chamber 7.5s ease-in-out infinite}
+@keyframes dracula-pulse{0%,100%{box-shadow:inset 0 1px 0 #ffb6c022,0 0 0 0 #b9325000}50%{box-shadow:inset 0 1px 0 #ffb6c022,0 0 20px 0 #b9325070}}
+@keyframes dracula-curve{0%,100%{filter:drop-shadow(0 0 4px #ed557c44)}50%{filter:drop-shadow(0 0 11px #ff5c7aa6)}}
+@keyframes dracula-flicker{0%,100%{opacity:1;text-shadow:0 0 14px #ff5c7a66}42%{opacity:.9;text-shadow:0 0 6px #ff5c7a33}46%{opacity:1;text-shadow:0 0 20px #ff5c7ab3}52%{opacity:.94;text-shadow:0 0 8px #ff5c7a44}70%{opacity:1;text-shadow:0 0 12px #ff5c7a55}}
+@keyframes dracula-chamber{0%,100%{box-shadow:0 0 0 0 #0000}50%{box-shadow:0 0 30px -6px #a93d5973}}
+
 /* Bat swarm animation when switching to Dracula theme */
 .bat-swarm-overlay{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;overflow:hidden;z-index:99999}
-.bat-flight{position:absolute;left:0;top:0;width:0;height:0;opacity:0;will-change:transform,opacity;animation:bat-flight-arc var(--duration) cubic-bezier(.25,.1,.25,1) var(--delay) forwards}
+.bat-swarm-moon{position:absolute;top:5vh;right:8vw;width:min(34vw,360px);aspect-ratio:1;border-radius:50%;background:radial-gradient(circle at 40% 38%,#ffd0b0,#e0566f 48%,#7a1737 78%);box-shadow:0 0 160px 60px #ff2b5366,inset -22px -22px 66px #4a0c22;opacity:0;animation:swarm-moon 5.6s ease-in-out forwards}
+.bat-swarm-streaks{position:absolute;inset:-25% -12%;background:repeating-linear-gradient(90deg,transparent 0 46px,#ff5c7a14 46px 48px,transparent 48px 96px);opacity:0;animation:swarm-streaks 5.6s ease-in-out forwards}
+.bat-swarm-vignette{position:absolute;inset:0;background:radial-gradient(120% 100% at 50% 45%,transparent 34%,#050308f2 100%);opacity:0;animation:swarm-vignette 5.6s ease-in-out forwards}
+.bat-swarm-flash{position:absolute;inset:0;background:radial-gradient(55% 55% at 50% 48%,#ff2b5359,transparent 72%);opacity:0;animation:swarm-flash 5.6s ease-out forwards}
+.bat-flight{position:absolute;left:0;top:0;width:0;height:0;opacity:0;will-change:transform,opacity;animation:bat-flight-arc var(--duration) cubic-bezier(.3,.05,.35,1) var(--delay) forwards}
 .bat-wobble{animation:bat-wobble-anim var(--wobble-speed) ease-in-out infinite alternate}
-.bat-wings{transform-origin:50% 50%;animation:bat-wings-flap var(--flap-speed) ease-in-out infinite alternate}
-.bat-silhouette{width:36px;height:36px;display:block;overflow:visible;filter:drop-shadow(0 0 8px var(--glow))}
+.bat-wings{transform-origin:50% 50%;animation:bat-wings-flap var(--flap-speed) cubic-bezier(.45,0,.55,1) infinite alternate}
+.bat-silhouette{width:40px;height:40px;display:block;overflow:visible;filter:drop-shadow(0 0 10px var(--glow)) drop-shadow(0 0 24px var(--glow))}
 @keyframes bat-flight-arc{
-  0%{transform:translate3d(var(--x0),var(--y0),0) rotate(var(--rot0)) scale(var(--scale));opacity:0}
-  10%{opacity:var(--opacity)}
-  50%{transform:translate3d(var(--xmid),var(--ymid),0) rotate(var(--rotmid)) scale(var(--scale));opacity:var(--opacity)}
-  88%{opacity:var(--opacity)}
-  100%{transform:translate3d(var(--x1),var(--y1),0) rotate(var(--rot1)) scale(var(--scale));opacity:0}
+  0%{transform:translate3d(var(--x0),var(--y0),0) rotate(var(--r0)) scale(var(--scale));opacity:0}
+  6%{opacity:var(--opacity)}
+  33%{transform:translate3d(var(--x1),var(--y1),0) rotate(var(--r1)) scale(var(--scale-mid))}
+  66%{transform:translate3d(var(--x2),var(--y2),0) rotate(var(--r2)) scale(var(--scale))}
+  94%{opacity:var(--opacity)}
+  100%{transform:translate3d(var(--x3),var(--y3),0) rotate(var(--r3)) scale(var(--scale));opacity:0}
 }
-@keyframes bat-wobble-anim{0%{transform:rotate(-6deg) translateY(-2px)}100%{transform:rotate(6deg) translateY(2px)}}
-@keyframes bat-wings-flap{0%{transform:scaleY(1) scaleX(.96)}100%{transform:scaleY(-.6) scaleX(1.04) translateY(2px)}}
+@keyframes bat-wobble-anim{0%{transform:rotate(-9deg) translateY(-3px)}100%{transform:rotate(9deg) translateY(3px)}}
+@keyframes bat-wings-flap{0%{transform:scaleY(1) scaleX(.94)}100%{transform:scaleY(-.78) scaleX(1.08) translateY(3px)}}
+@keyframes swarm-moon{0%{opacity:0;transform:translateY(34px) scale(.7)}22%{opacity:.9;transform:translateY(0) scale(1)}74%{opacity:.72}100%{opacity:0;transform:translateY(-26px) scale(1.06)}}
+@keyframes swarm-streaks{0%{opacity:0;background-position:0 0}14%{opacity:.55}80%{opacity:.4}100%{opacity:0;background-position:640px 0}}
+@keyframes swarm-vignette{0%{opacity:0}16%{opacity:.95}70%{opacity:.88}100%{opacity:0}}
+@keyframes swarm-flash{0%{opacity:0}7%{opacity:.95}28%{opacity:.3}100%{opacity:0}}
 @media(prefers-reduced-motion:reduce){.theme-switch-label,.toggle i{transition:none}.bat-swarm-overlay{display:none!important}}
+
+/* Cinematic switch: the lights go out, then the editor is revealed with the bats. */
+.dracula-lights-out{position:fixed;inset:0;z-index:99990;pointer-events:none;background:#04030a;opacity:0;animation:dracula-lights-out 10.2s linear forwards}
+html[data-dracula-intro="1"] .app-shell{animation:dracula-reveal 1.7s cubic-bezier(.2,.7,.2,1) 4.6s both}
+@keyframes dracula-lights-out{0%{opacity:0}3.5%{opacity:1}45%{opacity:1}58%{opacity:0}100%{opacity:0}}
+@keyframes dracula-reveal{0%{opacity:0}100%{opacity:1}}

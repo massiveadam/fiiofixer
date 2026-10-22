@@ -108,3 +108,11 @@ A second Linux machine was still running `0.6.0`. Its `PwaControl` predates the 
 Bootstrapped once from the published `v0.7.2` archive: downloaded `fiiofixer-0.7.2-linux.tar.gz` and its `.sha256`, verified the checksum, then ran `scripts/install-linux.sh`. The login service restarted, `/api/status` and `/version.json` both report `0.7.2`, the bundle and `version.json` share the same build ID, and `fiiofixer-update` reports "Nothing newer to install." The 0.7.2 editor was loaded through a loopback tunnel, showed Connect, and raised no false update prompt.
 
 Any install older than `0.7.0` needs this one-time installer run; those builds cannot see or run the updater. No hardware read or write was attempted during this check.
+
+## Dracula cinematic switch and sound
+
+Switching to the Dracula theme is now a short cinematic. The screen darkens, a synthesized pipe organ and the recorded "I Am Dracula" voice begin, the laugh follows, then the bat swarm crosses the screen with recorded bat chirps while the editor is revealed. A speaker toggle beside the theme switch mutes the effect, and the sound is routed to a chosen output device so it does not play through the EH11.
+
+The pipe organ, the fallback laugh and the fallback bat chirps are synthesized in the browser with the Web Audio API. The recorded clips in `public/sounds/` are used when present: `i-am-dracula.mp3`, `maniacal-laugh.mp3` and `bat-chirping.mp3` (a 3.2 s excerpt). The hosted build falls back to synthesized audio if the clips are absent. Their licences restrict redistribution; that was accepted for this project and is noted in `public/sounds/README.md`.
+
+Verified in Chromium at 1280x800: the sequence set its intro state, rendered 56 bats, hid the editor behind the lights-out overlay, then revealed it. The Web Audio graph loaded all three clips and scheduled the organ and voice at 0.3 s, the laugh at 3.5 s and the bat chirps at 4.6 s, with the audio context running. Visual review confirmed the settled theme keeps the editor readable, the top-bar drips stay clear of headings and buttons, and the bats read as clean silhouettes. 55 TypeScript and 50 Python tests pass and the production build succeeds. The animation respects `prefers-reduced-motion` by skipping the sequence entirely.
