@@ -14,6 +14,7 @@ interface DeviceTransport {
 export interface BrowserConnection extends DeviceTransport { kind: 'browser' }
 export interface LinuxConnection extends DeviceTransport {
   kind: 'linux';
+  readonly deviceId: string;
   apply(baseline: Uint8Array, target: Uint8Array): Promise<Uint8Array>;
   startLive(baseline: Uint8Array): Promise<LiveConnection>;
   setEqEnabled(enabled: boolean): Promise<boolean>;
@@ -188,7 +189,7 @@ export class LinuxBridge {
         } finally { busy = false; }
     };
     return {
-      kind: 'linux', name: device.name, disconnect,
+      kind: 'linux', name: device.name, deviceId: device.id, disconnect,
       setEqEnabled: async enabled => {
         if (!this.eqSwitchSupported) throw new Error('Update the Linux helper to control headphone EQ.');
         if (closed || busy) throw new Error('Bluetooth is unavailable or busy. Try again when the current request finishes.');

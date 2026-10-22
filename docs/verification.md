@@ -69,3 +69,15 @@ The installed helper reproduced `br-connection-busy` from the audio bearer befor
 A stuck pending connection was canceled only after confirming this headset was disconnected and had no active FiiOFixer session. The control link then responded. The installed v0.5.1 helper passed three Connect → read full EQ and global state → Disconnect cycles. After each release, BlueZ still reported Connected and ServicesResolved, the audio transport remained present, and all EQ bytes were unchanged with EQ on. Previous session IDs returned 409. No EQ writes were sent. All 49 Python and 41 TypeScript tests passed, along with the production build.
 
 The updated browser UI also scanned and connected to the idle helper link, automatically loaded headphone EQ with the global switch on, and disconnected successfully. A full read during that UI session matched the pre-test EQ backup exactly.
+
+## v0.6 EQ-on comparison
+
+Flat now means zero-gain peaking filters while global headphone EQ stays on. The user reports different base tuning when processing is disabled; this update does not use bypass for comparison. The original curve is saved locally for the same device before writes, then restored byte for byte.
+
+The production browser UI was checked against a simulated helper on an isolated local origin. EQ → Flat → EQ kept global processing on, sent no off command, zeroed every gain, preserved the editor draft, and restored the original raw frame exactly. Reloading while Flat was active recovered the comparison; reconnect read the actual device EQ while preserving an edited saved draft, and EQ restored the saved curve. A storage failure prevented every comparison apply.
+
+For a live race, the simulated helper held a -1 dB write while a newer -2 dB edit was queued. Flat waited for the accepted -1 dB write, canceled -2 dB, stopped the live session, and used that fresh -1 dB frame as the restore point. EQ restored -1 dB; the unsent -2 dB draft remained editable. Preset selection during live mode applied automatically, and Undo restored the prior curve. The 360 px layout fit without horizontal overflow.
+
+All 49 TypeScript and 49 Python tests and the production build passed. These v0.6 browser checks are simulations, not new acoustic measurements. The checked whole-curve and activation commands were physically verified in v0.5; the running v0.5.1 helper is compatible with this frontend. Updating the installed static frontend does not require a helper restart.
+
+Review follow-ups verified that Apply and Live EQ started from Flat retain the pre-comparison original in Previous EQ. A quota failure sends no write and preserves the known processing state. The separate comparison matcher rejects another device or a changed hardware frame.

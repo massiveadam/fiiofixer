@@ -192,7 +192,7 @@ async def local_only(request: Request, call_next):
 
 @app.get("/api/status")
 async def status():
-    return {"app": "fiiofixer", "version": "0.5.1", "token": TOKEN, "hardwareWritesEnabled": True, "liveEqEnabled": True, "eqSwitchEnabled": True,
+    return {"app": "fiiofixer", "version": "0.6.0", "token": TOKEN, "hardwareWritesEnabled": True, "liveEqEnabled": True, "eqSwitchEnabled": True,
             "connectionId": reader.connection_id if reader.client and reader.client.is_connected else None}
 
 
