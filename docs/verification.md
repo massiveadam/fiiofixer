@@ -20,7 +20,7 @@ Use the production build at http://localhost:8787 or the hosted app.
 
 ## Linux package
 
-Run `npm run package:linux`. Extract the archive into a fresh directory, then install using `bash scripts/install-linux.sh --prefix '/tmp/fiiofixer-check/install prefix' --no-service`. Run the installed `bin/fiiofixer --no-browser` and check that `/api/status` identifies `fiiofixer`, version `0.5.0`, and `hardwareWritesEnabled: true`. Never store the response token in evidence.
+Run `npm run package:linux`. Extract the archive into a fresh directory, then install using `bash scripts/install-linux.sh --prefix '/tmp/fiiofixer-check/install prefix' --no-service`. Run the installed `bin/fiiofixer --no-browser` and check that `/api/status` identifies `fiiofixer`, version `0.5.1`, and `hardwareWritesEnabled: true`. Never store the response token in evidence.
 
 Repeat installation to check that updates are safe. Test a regular per-user install with systemd and check that the service is enabled and active. Stop only helper processes created by your verification. The app must still start when the extracted release directory is no longer present.
 
@@ -61,3 +61,11 @@ The user reported that stored/readback-verified filters did not affect sound. A 
 Regression checks cover exact global status/ACK frames, rejection of the old speculative ACK, activation after matching or changed filters, rollback of the curve and original bypass state after activation failure, and live start backup/activation ordering. Complete-curve writes replace sequential band writes in transaction tests. These are in addition to the live queue, stale session and storage checks from earlier versions.
 
 The v0.5 production build passed 41 TypeScript and 40 Python tests. The installed UI read and loaded actual EQ on connection, displayed the verified global state, switched EQ off, and re-enabled it with an unchanged Apply. Starting Live EQ from off enabled processing; a temporary -1 dB band edit matched the complete expected readback. Previous EQ restored every original byte with EQ still on. The app update retained its saved draft. Desktop and 360 px layouts were checked.
+
+## v0.5.1 connection recovery
+
+The installed helper reproduced `br-connection-busy` from the audio bearer before any EQ command. Normal app disconnect had called Bleak disconnect, which invokes the whole-device BlueZ Disconnect method. The helper now releases the browser connection/live IDs while keeping its physical client for reuse. Busy/InProgress connection replies trigger bounded readiness polling, and a stalled cached-characteristic read cannot consume the entire connection window. Authentication failures still stop immediately.
+
+A stuck pending connection was canceled only after confirming this headset was disconnected and had no active FiiOFixer session. The control link then responded. The installed v0.5.1 helper passed three Connect → read full EQ and global state → Disconnect cycles. After each release, BlueZ still reported Connected and ServicesResolved, the audio transport remained present, and all EQ bytes were unchanged with EQ on. Previous session IDs returned 409. No EQ writes were sent. All 49 Python and 41 TypeScript tests passed, along with the production build.
+
+The updated browser UI also scanned and connected to the idle helper link, automatically loaded headphone EQ with the global switch on, and disconnected successfully. A full read during that UI session matched the pre-test EQ backup exactly.

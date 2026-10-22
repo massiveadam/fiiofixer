@@ -52,7 +52,7 @@ Import its parametric `Filters.txt` using **Import EQ**. Export offers compatibl
 
 ## Applying EQ on Linux
 
-Connecting automatically reads the current headphone EQ into the editor. Undo recovers the draft that was open before connection. Edit and choose **Apply to headphones**. The helper checks the read baseline, saves a private backup, sends the whole curve in one command, verifies the complete readback, and enables headphone EQ. The **Headphone EQ** switch shows the device’s actual on/off state and can bypass the EQ for comparison. A failed check stops apply and attempts restoration. The app reports whether restoration was verified.
+Connecting automatically reads the current headphone EQ into the editor. Disconnecting the app keeps the headset’s audio connection; the helper reuses its idle control link on the next connection. Undo recovers the draft that was open before connection. Edit and choose **Apply to headphones**. The helper checks the read baseline, saves a private backup, sends the whole curve in one command, verifies the complete readback, and enables headphone EQ. The **Headphone EQ** switch shows the device’s actual on/off state and can bypass the EQ for comparison. A failed check stops apply and attempts restoration. The app reports whether restoration was verified.
 
 **Previous EQ** loads the backup as a draft. Choose **Apply to headphones** to restore it. Raw helper backups are also retained under `~/.local/share/fiiofixer/backups`. Open a `.bin` file with **Import EQ**, then Apply to restore it. With Live EQ off, changes are sent only when you press Apply.
 

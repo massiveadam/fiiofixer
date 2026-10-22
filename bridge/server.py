@@ -114,6 +114,14 @@ class Reader:
         self.queue = asyncio.Queue(maxsize=100)
         self.frames = Frames()
 
+    async def release(self):
+        # Device1.Disconnect also tears down audio. Keep this helper's GATT
+        # client for reuse, but revoke all access from the old browser session.
+        self.connection_id = None
+        self.live_id = None
+        self.queue = asyncio.Queue(maxsize=100)
+        self.frames = Frames()
+
     def require(self, connection_id: str):
         if not self.client or not self.client.is_connected or self.connection_id != connection_id:
             raise HTTPException(409, "This Bluetooth session has ended. Reconnect your EH11.")
@@ -184,14 +192,14 @@ async def local_only(request: Request, call_next):
 
 @app.get("/api/status")
 async def status():
-    return {"app": "fiiofixer", "version": "0.5.0", "token": TOKEN, "hardwareWritesEnabled": True, "liveEqEnabled": True, "eqSwitchEnabled": True,
+    return {"app": "fiiofixer", "version": "0.5.1", "token": TOKEN, "hardwareWritesEnabled": True, "liveEqEnabled": True, "eqSwitchEnabled": True,
             "connectionId": reader.connection_id if reader.client and reader.client.is_connected else None}
 
 
 @app.post("/api/scan")
 async def scan():
     async with reader.lock:
-        if reader.client and reader.client.is_connected:
+        if reader.client and reader.client.is_connected and reader.connection_id is not None:
             raise HTTPException(409, "An EH11 is already connected. Disconnect it in the other tab first.")
         try:
             found = await BleakScanner.discover(timeout=7, return_adv=True)
@@ -242,11 +250,15 @@ class EnabledBody(SessionBody):
 @app.post("/api/connect")
 async def connect(body: ConnectBody):
     async with reader.lock:
-        if reader.client and reader.client.is_connected:
+        if reader.client and reader.client.is_connected and reader.connection_id is not None:
             raise HTTPException(409, "An EH11 is already connected. Disconnect it first.")
         device = reader.devices.get(body.id)
         if not device:
             raise HTTPException(400, "Choose an EH11 from a fresh scan.")
+        if reader.client and reader.client.is_connected and reader.client.address == body.id:
+            reader.connection_id = secrets.token_urlsafe(16)
+            logger.info('EH11 control link reused; new app session opened.')
+            return {"connectionId": reader.connection_id}
         await reader.close()
         try:
             async def establish():
@@ -274,7 +286,7 @@ async def disconnect(body: SessionBody):
         # Repeated cleanup is harmless. A stale tab cannot disconnect a newer session.
         if reader.connection_id is not None and reader.connection_id != body.connectionId:
             raise HTTPException(409, "That session has already ended.")
-        await reader.close()
+        await reader.release()
         return {"disconnected": True}
 
 
@@ -294,7 +306,7 @@ async def exchange(body: ExchangeBody):
             return {"bytes": list(reply)}
         except Exception as error:
             logger.warning('EH11 read failed: %s: %s', type(error).__name__, error)
-            await reader.close()
+            await reader.release()
             raise HTTPException(503, f"EH11 read failed: {error}. Reconnect before retrying.") from error
 
 

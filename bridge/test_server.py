@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 from types import SimpleNamespace
 from fastapi.testclient import TestClient
+from fastapi import HTTPException
 from server import app, TOKEN, Frames, Reader, validate_query
 
 READ = bytes.fromhex("f1 10 00 0a 03 0d 01 00 09 ff")
@@ -95,6 +96,17 @@ class ApiTests(unittest.TestCase):
                 self.assertEqual(result.json(),{'enabled':enabled})
                 self.assertEqual(device.enabled,enabled)
 
+    def test_disconnect_endpoint_ends_only_the_owned_app_session(self):
+        from server import reader
+        device=SimpleNamespace(is_connected=True,disconnect=AsyncMock())
+        with patch.object(reader,'client',device),patch.object(reader,'connection_id','owned'),patch.object(reader,'live_id','live'):
+            result=self.client.post('/api/disconnect',json={'connectionId':'owned'},headers=self.headers)
+            self.assertEqual(result.status_code,200)
+            self.assertIsNone(reader.connection_id)
+            self.assertIsNone(reader.live_id)
+            self.assertIs(reader.client,device)
+            device.disconnect.assert_not_awaited()
+
 
 class FramingTests(unittest.TestCase):
     def test_fragmentation_and_embedded_ff(self):
@@ -105,6 +117,35 @@ class FramingTests(unittest.TestCase):
 
 
 class ReadTests(unittest.IsolatedAsyncioTestCase):
+    async def test_releasing_the_app_session_keeps_the_headset_link_and_revokes_access(self):
+        reader=Reader()
+        client=SimpleNamespace(is_connected=True,disconnect=AsyncMock())
+        reader.client=client;reader.connection_id='owned';reader.live_id='live'
+        await reader.release()
+        self.assertIs(reader.client,client)
+        client.disconnect.assert_not_awaited()
+        self.assertIsNone(reader.connection_id)
+        self.assertIsNone(reader.live_id)
+        with self.assertRaises(HTTPException):reader.require('owned')
+
+    async def test_reconnecting_reuses_the_idle_headset_link_with_a_new_session(self):
+        from server import reader,connect,ConnectBody
+        client=SimpleNamespace(is_connected=True,address='test-eh11',disconnect=AsyncMock())
+        device=SimpleNamespace(address='test-eh11')
+        with patch.object(reader,'client',client),patch.object(reader,'connection_id',None),patch.object(reader,'devices',{'test-eh11':device}),patch('server.prepare_eh11',new=AsyncMock()) as prepare:
+            result=await connect(ConnectBody(id='test-eh11'))
+            self.assertTrue(result['connectionId'])
+            reader.require(result['connectionId'])
+            prepare.assert_not_awaited()
+            client.disconnect.assert_not_awaited()
+
+    async def test_idle_headset_link_does_not_block_a_fresh_scan(self):
+        from server import reader,scan
+        device=SimpleNamespace(address='test-eh11',name='FIIO EH11')
+        with patch.object(reader,'client',SimpleNamespace(is_connected=True)),patch.object(reader,'connection_id',None),patch('server.BleakScanner.discover',new=AsyncMock(return_value={})),patch('server.get_paired_eh11_devices',new=AsyncMock(return_value={device.address:device})):
+            result=await scan()
+        self.assertEqual(result,[{'id':device.address,'name':device.name}])
+
     async def test_hung_disconnect_cannot_block_the_helper_indefinitely(self):
         reader=Reader()
         class HungClient:

@@ -14,6 +14,15 @@ from dbus_fast.aio import MessageBus
 
 SERVICE = '00001100-04a5-1000-1000-40ed981a04a5'
 RX = '00001102-04a5-1000-1000-40ed981a04a5'
+CONTROL_READ_TIMEOUT = 1
+
+
+def connect_in_progress(reply):
+    if reply is None or reply.message_type != MessageType.ERROR:
+        return False
+    return reply.error_name in ('org.bluez.Error.InProgress', 'org.bluez.Error.AlreadyConnected') or (
+        reply.error_name == 'org.bluez.Error.Failed' and reply.body and
+        reply.body[0] in ('br-connection-busy', 'le-connection-busy'))
 
 
 def checked(reply):
@@ -64,8 +73,11 @@ async def control_ready(bus, path, objects):
             continue
         # Services can remain cached after LE disconnects. A real GATT read is
         # the readiness check; Device1.Connected also includes audio-only links.
-        reply = await bus.call(Message(destination='org.bluez', path=char_path,
-            interface='org.bluez.GattCharacteristic1', member='ReadValue', signature='a{sv}', body=[{}]))
+        try:
+            reply = await asyncio.wait_for(bus.call(Message(destination='org.bluez', path=char_path,
+                interface='org.bluez.GattCharacteristic1', member='ReadValue', signature='a{sv}', body=[{}])), CONTROL_READ_TIMEOUT)
+        except TimeoutError:
+            return False
         if reply and reply.message_type == MessageType.METHOD_RETURN:
             return True
         if reply and reply.error_name not in ('org.bluez.Error.NotConnected', 'org.bluez.Error.InProgress', 'org.bluez.Error.Failed'):
@@ -77,14 +89,22 @@ async def establish_control(bus, path):
     objects = await managed_objects(bus)
     if await control_ready(bus, path, objects):
         return device_from_properties(path, objects[path]['org.bluez.Device1'])
-    for _ in range(2):
-        checked(await bus.call(Message(destination='org.bluez', path=path,
-            interface='org.bluez.Device1', member='Connect')))
+    busy = False
+    for _ in range(6):
+        reply = await bus.call(Message(destination='org.bluez', path=path,
+            interface='org.bluez.Device1', member='Connect'))
+        busy = connect_in_progress(reply)
+        if not busy:
+            checked(reply)
+        # Audio auto-reconnect can own Connect() while the control bearer
+        # becomes ready. Wait and probe before issuing another connection.
         for _ in range(8):
             objects = await managed_objects(bus)
             if await control_ready(bus, path, objects):
                 return device_from_properties(path, objects[path]['org.bluez.Device1'])
             await asyncio.sleep(0.15)
+    if busy:
+        raise ConnectionError('Bluetooth is still busy connecting the EH11. Wait a moment, then retry. If it persists, turn the headphones off and on.')
     raise ConnectionError('EH11 audio connected, but its LE control connection did not respond. Turn the headphones off and on, then reconnect.')
 
 
