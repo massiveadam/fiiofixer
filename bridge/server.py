@@ -25,6 +25,7 @@ SERVICE = "00001100-04a5-1000-1000-40ed981a04a5"
 TX = "00001101-04a5-1000-1000-40ed981a04a5"
 RX = "00001102-04a5-1000-1000-40ed981a04a5"
 TOKEN = secrets.token_urlsafe(32)
+VERSION = "0.7.0"
 ROOT = Path(__file__).resolve().parents[1]
 DISCONNECT_TIMEOUT = 4
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", "::1"}
@@ -192,7 +193,7 @@ async def local_only(request: Request, call_next):
 
 @app.get("/api/status")
 async def status():
-    return {"app": "fiiofixer", "version": "0.7.0", "token": TOKEN, "hardwareWritesEnabled": True, "liveEqEnabled": True, "eqSwitchEnabled": True,
+    return {"app": "fiiofixer", "version": VERSION, "token": TOKEN, "hardwareWritesEnabled": True, "liveEqEnabled": True, "eqSwitchEnabled": True,
             "connectionId": reader.connection_id if reader.client and reader.client.is_connected else None}
 
 

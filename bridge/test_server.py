@@ -1,11 +1,13 @@
 """Synthetic protocol and API boundary tests, not an EH11 hardware certification."""
 import asyncio
+import json
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from types import SimpleNamespace
 from fastapi.testclient import TestClient
 from fastapi import HTTPException
-from server import app, TOKEN, Frames, Reader, validate_query
+from server import app, TOKEN, VERSION, Frames, Reader, validate_query
 
 READ = bytes.fromhex("f1 10 00 0a 03 0d 01 00 09 ff")
 WRITE = bytes.fromhex("f1 10 00 11 13 0d 01 00 00 ff f6 00 64 00 47 00 ff")
@@ -15,6 +17,10 @@ class ApiTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app, base_url="http://localhost:8787")
         self.headers = {"X-FiiOFixer-Session": TOKEN}
+
+    def test_helper_version_matches_the_package_version(self):
+        package = json.loads((Path(__file__).resolve().parents[1] / 'package.json').read_text())
+        self.assertEqual(VERSION, package['version'])
 
     def test_status_identifies_checked_write_support(self):
         data = self.client.get("/api/status").json()

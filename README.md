@@ -27,7 +27,15 @@ Requires Python 3.10+, Python venv/pip, a browser, and BlueZ for Bluetooth. Node
 
 The installer copies the app into `~/.local/share/fiiofixer`, adds a launcher at `~/.local/bin/fiiofixer`, and enables a user service when systemd is available. The helper then starts at login. Without systemd, the launcher starts it when needed. Bluetooth settings are never changed.
 
-Install a newer release by running its installer again. The app keeps the same localhost address, so browser presets stay available. Quit an older manually started helper first if it occupies port 8787. Service logs are available with `journalctl --user -u fiiofixer`; launcher-started logs are in `~/.local/share/fiiofixer/helper.log`.
+To update an existing install to the newest published release:
+
+```bash
+bash scripts/update-linux.sh
+```
+
+The updater downloads the latest release archive, verifies its SHA-256 checksum, and runs the installer. Prefer it over installing a stale tarball you already have on disk: the app reports its version under **Install & share**, and an older installed package cannot see releases published after it.
+
+You can also install a newer release by running its installer again. The app keeps the same localhost address, so browser presets stay available. Quit an older manually started helper first if it occupies port 8787. Service logs are available with `journalctl --user -u fiiofixer`; launcher-started logs are in `~/.local/share/fiiofixer/helper.log`.
 
 For an installation that starts only when opened, use `bash scripts/install-linux.sh --no-service` which also disables an existing FiiOFixer login service.
 

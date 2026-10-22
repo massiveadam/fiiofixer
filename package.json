@@ -12,7 +12,8 @@
     "doctor": "node scripts/doctor.mjs",
     "linux": "bash scripts/start-linux.sh",
     "package:linux": "npm run build && python3 scripts/package-linux.py",
-    "install:linux": "bash scripts/install-linux.sh"
+    "install:linux": "bash scripts/install-linux.sh",
+    "update:linux": "bash scripts/update-linux.sh"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "^5.3.0",
