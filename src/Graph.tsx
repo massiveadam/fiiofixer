@@ -51,13 +51,13 @@ export function Graph({ bands, selected, onSelect, onChange, onCommit, disabled,
   const end = (): void => { drag.current = null; };
   return <div className="graph-wrap" ref={container}>
     <svg className="eq-graph" viewBox={`0 0 ${W} ${H}`} role="group" aria-label="Interactive equalizer graph" onPointerMove={move} onPointerUp={end} onPointerCancel={end}>
-      <defs><linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#3159de" stopOpacity="0.13"/><stop offset="100%" stopColor="#3159de" stopOpacity="0.01"/></linearGradient></defs>
+      <defs><linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--curve)" stopOpacity="0.13"/><stop offset="100%" stopColor="var(--curve)" stopOpacity="0.01"/></linearGradient></defs>
       {[20, 30, 40, 50, 60, 80, 100, 200, 300, 400, 500, 600, 800, 1000, 2000, 3000, 4000, 5000, 6000, 8000, 10000, 20000].map(f => <line key={f} x1={xAt(f)} x2={xAt(f)} y1={TOP} y2={H - BOTTOM} className={[20, 100, 1000, 10000, 20000].includes(f) ? 'grid-major' : 'grid-minor'}/>)}
       {[-0.9, -0.6, -0.3, 0, 0.3, 0.6, 0.9].map(fraction => { const g = Math.round(fraction * range); return <g key={g}><line x1={LEFT} x2={W - RIGHT} y1={yAt(g)} y2={yAt(g)} className={g === 0 ? 'grid-zero' : 'grid-major'}/><text x={LEFT - 12} y={yAt(g) + 4} textAnchor="end" className="axis-label">{g > 0 ? `+${g}` : g}</text></g>; })}
       {[20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000].map(f => <text key={f} x={xAt(f)} y={H - 11} textAnchor="middle" className="axis-label">{formatFrequency(f)}</text>)}
       <path d={`${points} L${W - RIGHT},${H - BOTTOM} L${LEFT},${H - BOTTOM} Z`} fill={`url(#${gradient})`}/>
-      <path d={selectedCurve} fill="none" stroke="#dd773d" strokeWidth="1.5" strokeDasharray="4 5" opacity="0.65"/>
-      <path d={points} fill="none" stroke="#3159de" strokeWidth="2.8" strokeLinejoin="round"/>
+      <path d={selectedCurve} fill="none" stroke="var(--orange)" strokeWidth="1.5" strokeDasharray="4 5" opacity="0.65"/>
+      <path d={points} fill="none" stroke="var(--curve)" strokeWidth="2.8" strokeLinejoin="round"/>
       {bands.map((band, index) => <g key={index} className={`graph-handle ${!band.enabled ? 'band-off' : ''} ${selected === index ? 'selected' : ''}`} role="slider" tabIndex={disabled ? -1 : 0}
         aria-label={`Band ${index + 1}, ${band.frequency} Hz`} aria-valuemin={Math.min(-gainLimit, band.gain)} aria-valuemax={Math.max(gainLimit, band.gain)} aria-valuenow={band.gain} aria-valuetext={`${band.gain} decibels at ${band.frequency} hertz${band.enabled ? '' : ', filter off'}`}
         onFocus={() => onSelect(index)}
@@ -74,8 +74,8 @@ export function Graph({ bands, selected, onSelect, onChange, onCommit, disabled,
           event.currentTarget.focus(); event.preventDefault();
         }}>
         <circle cx={xAt(band.frequency)} cy={yAt(band.gain)} r="18" fill="transparent"/>
-        {selected === index && <circle cx={xAt(band.frequency)} cy={yAt(band.gain)} r="13" fill="#fff0e4" stroke="#e8bb9b"/>}
-        <circle cx={xAt(band.frequency)} cy={yAt(band.gain)} r={selected === index ? 8 : 5} fill={selected === index ? '#dd773d' : '#fff'} stroke={selected === index ? '#dd773d' : '#3159de'} strokeWidth="2"/>
+        {selected === index && <circle cx={xAt(band.frequency)} cy={yAt(band.gain)} r="13" fill="var(--handle-halo)" stroke="var(--handle-border)"/>}
+        <circle cx={xAt(band.frequency)} cy={yAt(band.gain)} r={selected === index ? 8 : 5} fill={selected === index ? 'var(--orange)' : 'var(--surface)'} stroke={selected === index ? 'var(--orange)' : 'var(--curve)'} strokeWidth="2"/>
         {selected === index && <text x={xAt(band.frequency)} y={yAt(band.gain) - 22} textAnchor="middle" className="point-label">{index + 1}</text>}
       </g>)}
     </svg>

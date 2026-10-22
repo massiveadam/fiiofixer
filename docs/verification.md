@@ -17,6 +17,15 @@ Use the production build at http://localhost:8787 or the hosted app.
 5. Wait for the service worker to activate, reload once, then stop the local helper and reload again. The editor must load from cache, retain the draft, and allow local editing. API calls must fail rather than return a cached token or device reply. Restart the helper afterwards.
 6. Inspect at 1280×1000 and 360×800. The document and dialogs must fit the viewport. Check keyboard graph edits and visible focus.
 7. On GitHub Pages, verify that manifest, icons, licenses and service worker resolve under `/fiiofixer/`. The hosted Connect dialog must offer browser Bluetooth and link to the Linux package instead of calling a local helper.
+8. Toggle the bat button in the top-right corner using both a click and keyboard Enter. Dracula mode must change artwork, headings, controls, graph colors, dialogs, favicon and browser theme color. Compare draft values, selected band, saved presets and curve geometry before and after switching both ways. Reload in Dracula mode and confirm the theme and draft restore. At 360 px, confirm the moonlit banner, controls and import dialog fit without horizontal overflow.
+
+## v0.7 Dracula appearance and bat swarm animation
+
+The production build was checked at 1280 px and 360 px. The vampire portrait, castle banner, bat icons, gothic headings, crimson graph and themed import dialog rendered correctly. The phone layout and dialog fit without horizontal overflow. Switching both ways preserved all non-theme local storage, numeric controls, preset name and graph paths. Reload preserved the theme and draft. Keyboard Enter toggled the button and its pressed state with visible focus. The light favicon restored and the dark browser theme color matched the canvas.
+
+When toggling to Dracula mode, a bat swarm animation triggers across the screen with 20 bats featuring staggered trajectories, individual wing-beating cycles, crimson glow dropshadows, and automatic DOM unmounting after the 3-second flight. Prefers-reduced-motion queries and CSS rules disable the swarm when requested.
+
+All 52 TypeScript tests, 49 Python tests and the production build passed. This pass changes appearance and animations only and includes no new hardware verification.
 
 ## Linux package
 

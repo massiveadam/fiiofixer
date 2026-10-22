@@ -1,0 +1,102 @@
+/* Appearance only. Editor and device state belongs to the existing controls. */
+:root{scrollbar-color:var(--control-border) var(--canvas)}
+.night-only,.night-copy{display:none}
+.brand-icon>span{display:grid;place-items:center}
+.brand-icon .dracula-brand{display:none}
+.preset-icon{display:inline-flex;align-items:center;flex-shrink:0}
+.preset-icon>span{line-height:0}
+.theme-switch{position:relative;z-index:20;width:40px;height:40px;flex-shrink:0;display:grid;place-items:center;border:1px solid var(--control-border);border-radius:50%;background:var(--surface);color:var(--blue);box-shadow:0 5px 20px #00000014}
+.theme-switch:hover{border-color:var(--blue);background:var(--hover)}
+.theme-switch-label{position:absolute;right:calc(100% + 10px);padding:7px 11px;border:1px solid var(--control-border);border-radius:6px;background:var(--surface);color:var(--ink);font-size:11px;white-space:nowrap;pointer-events:none;opacity:0;transform:translateX(4px);transition:opacity .12s,transform .12s}
+.theme-switch:hover .theme-switch-label,.theme-switch:focus-visible .theme-switch-label{opacity:1;transform:none}
+html[data-theme="dracula"]{
+  color-scheme:dark;
+  --ink:#f4e9e4;--canvas:#17141f;--blue:#e5b0cd;--orange:#ff748e;--line:#493044;--muted:#bcaaba;
+  --surface:#231c2b;--chrome-line:#543247;--separator:#69465d;--control-border:#765367;
+  --hover:#3c283d;--accent-hover:#b93250;--quiet-hover:#39263b;--rail-line:#543247;
+  --status-idle:#9c83a3;--success:#a4d8b4;--preset-active:#452737;--preset-hover:#302033;
+  --icon-muted:#c6a2bd;--panel-border:#744254;--draft-dot:#ff748e;--success-text:#a4d8b4;
+  --grid-major:#463245;--grid-minor:#302535;--grid-zero:#846277;--axis:#c1a9c2;
+  --point-label:#ff9aab;--tile:#2c2334;--tile-hover:#402a41;--selected-border:#e8738c;
+  --selected-bg:#4e2538;--index:#b9a1ba;--dim:#ac97af;--selected-text:#ffb3c1;
+  --disabled-ink:#b49db9;--input:#1c1723;--slider-label:#bcaaba;--toggle-track:#705267;
+  --error:#ff949d;--select-border:#765367;--log-bg:#131019;--info-border:#875369;
+  --info-bg:#342237;--info-ink:#e9bed7;--backdrop:#09070ddd;--field-border:#765367;
+  --file-bg:#302033;--file-ink:#f4e9e4;--segment-bg:#1c1723;--segment-hover:#462b40;
+  --curve:#f16c86;--handle-halo:#50283c;--handle-border:#eeb4c8;
+  --vampire-red:#ff718b;--vampire-ivory:#fff1df;background:#17141f;
+}
+html[data-theme="dracula"] body{background:radial-gradient(ellipse at 5% 12%,#54213b35,transparent 45%),radial-gradient(ellipse at 95% 0,#4c355a30,transparent 50%);min-height:100vh}
+html[data-theme="dracula"] ::selection{background:#7a3554;color:#fff1df}
+html[data-theme="dracula"] .day-copy{display:none}
+html[data-theme="dracula"] .night-copy{display:inline}
+html[data-theme="dracula"] .topbar{border-bottom:1px solid #694154;position:relative}
+html[data-theme="dracula"] .topbar::after{content:'';position:absolute;bottom:-4px;left:50%;width:7px;height:7px;background:#db647f;transform:rotate(45deg)}
+html[data-theme="dracula"] .wordmark{font-family:'Cinzel Decorative',serif;font-size:25px;letter-spacing:.25px;color:#f3dfd8}
+html[data-theme="dracula"] .brand-icon{background:#3e2037;color:#e8bbd3;border:1px solid #9b5770;border-radius:12px 12px 5px 5px;width:39px;height:42px;box-shadow:inset 0 0 15px #ba3d5c20}
+html[data-theme="dracula"] .brand-icon .light-brand{display:none}
+html[data-theme="dracula"] .brand-icon .dracula-brand{display:grid}
+html[data-theme="dracula"] .brand-note{font-family:'Manrope Variable',sans-serif;font-size:11px;letter-spacing:.8px;color:#e4a4bf}
+html[data-theme="dracula"] .listening-chamber{display:flex;justify-content:space-between;align-items:center;gap:16px;min-height:110px;padding:13px 22px;margin-bottom:17px;position:relative;border:1px solid #634053;border-radius:52px 7px 7px 7px;background:#211a2a url('./assets/dracula-castle.svg') right center/auto 180px no-repeat;overflow:hidden}
+.chamber-title{display:flex;align-items:center;gap:15px;position:relative;z-index:1;min-width:0}
+.chamber-title>svg{color:#e6b8ce;flex-shrink:0}
+.chamber-title p{font-family:'Cinzel Decorative',serif;font-size:19px;font-weight:700;line-height:1.5;color:#f2dedc}
+.chamber-title span{display:block;font-size:11px;color:#cfb2c7;margin-top:5px}
+.chamber-edition{position:absolute;right:13px;bottom:9px;font-size:9px;color:#d9b3ca;padding:3px 6px;background:#1c1427c9;border-radius:3px}
+html[data-theme="dracula"] .dracula-portrait{display:block;margin:28px 0 0;padding-top:18px;border-top:1px solid #543247;text-align:center}
+.dracula-portrait img{display:block;width:100%;max-width:230px;margin:auto}
+.dracula-portrait figcaption{font-family:'Cinzel Decorative',serif;color:#dab5c8;font-size:12px;line-height:1.7;margin-top:9px}
+.dracula-portrait small{display:block;font-family:'Manrope Variable',sans-serif;font-size:10px;color:var(--muted);margin-top:3px}
+html[data-theme="dracula"] .section-heading h2{font-family:'Cinzel Decorative',serif;font-size:13px;color:#edc8da}
+html[data-theme="dracula"] .equalizer-panel{border-radius:15px 15px 6px 6px;box-shadow:0 12px 40px #00000035,inset 0 0 0 3px #17141f;position:relative}
+html[data-theme="dracula"] .eq-toolbar{border-top:3px solid #a93d59;background:linear-gradient(180deg,#3a233780,#231c2b00);padding-top:21px}
+html[data-theme="dracula"] .eq-toolbar h1,html[data-theme="dracula"] .modal h2{font-family:'Cinzel Decorative',serif;letter-spacing:.15px;font-size:21px;line-height:1.5;color:#f2dedc}
+html[data-theme="dracula"] .eq-graph>path[stroke="var(--curve)"]{filter:drop-shadow(0 0 4px #ed557c55)}
+html[data-theme="dracula"] .band-tile{border-radius:17px 17px 4px 4px;border-color:#59384e;padding-top:12px}
+html[data-theme="dracula"] .band-tile.active{border-color:#ed829b;box-shadow:inset 0 0 15px #b6355c22}
+html[data-theme="dracula"] .selected-band-number{border-radius:0;clip-path:polygon(22% 0,78% 0,100% 24%,80% 100%,20% 100%,0 24%);background:#713149;color:#fff1df;border:0;height:33px}
+html[data-theme="dracula"] .button.primary{background:#942b46;border-color:#c15d79;color:#fff1e8;box-shadow:inset 0 1px 0 #ffb6c022}
+html[data-theme="dracula"] .button.primary:hover:not(:disabled){background:#b93250;border-color:#f291a9}
+html[data-theme="dracula"] .button:not(.primary)>svg,html[data-theme="dracula"] .preset-row>svg,html[data-theme="dracula"] .icon-button>svg{color:#d6adc9;stroke-width:1.7}
+html[data-theme="dracula"] .preset-icon{color:#e5adc8}
+html[data-theme="dracula"] .delete-preset>svg{color:#ff9bad}
+html[data-theme="dracula"] .line-swatch:not(.selected-line){background:var(--curve)}
+html[data-theme="dracula"] .selected-line{border-color:var(--orange)}
+html[data-theme="dracula"] .theme-switch{border-color:#b06b88;background:#392237;color:#f1d1af;box-shadow:0 0 0 3px #17141f,0 0 0 4px #70425b}
+html[data-theme="dracula"] .theme-switch:hover{background:#543047}
+html[data-theme="dracula"] .modal{border-color:#996078;border-top:3px solid #bf4d6b;background:radial-gradient(ellipse at 100% 0,#66304e40,transparent 65%),#231c2b;box-shadow:0 24px 80px #0008}
+html[data-theme="dracula"] .modal h2::after{content:'';display:block;margin-top:13px;width:58px;height:8px;background:linear-gradient(135deg,transparent 46%,#c87892 47%,#c87892 53%,transparent 54%) center/12px 8px repeat-x}
+@media(min-width:681px) and (max-width:1000px){.chamber-title p{font-size:16px}html[data-theme="dracula"] .listening-chamber{background-position:calc(100% + 110px) center}.chamber-title{padding:5px 9px;border-radius:8px;background:#211a2adb}}
+@media(max-width:680px){
+  .theme-switch{width:38px;height:38px}
+  html[data-theme="dracula"] .wordmark{font-size:20px}
+  html[data-theme="dracula"] .brand-icon{width:32px;height:35px}
+  html[data-theme="dracula"] .dracula-portrait{display:none}
+  html[data-theme="dracula"] .listening-chamber{order:1;width:100%;min-height:113px;margin:0;padding:18px 15px;border-radius:28px 7px 7px 7px;background-position:calc(100% + 180px) center;background-size:auto 165px}
+  .chamber-title{gap:10px;max-width:240px}
+  .chamber-title>svg{width:28px;height:28px}
+  .chamber-title p{font-size:16px;max-width:190px;text-shadow:0 1px 8px #17141f}
+  .chamber-title span{font-size:10px;max-width:150px;line-height:1.6}
+  html[data-theme="dracula"] .eq-toolbar h1{font-size:17px}
+  html[data-theme="dracula"] .eq-toolbar{padding-top:16px}
+  html[data-theme="dracula"] .modal h2{font-size:19px}
+  html[data-theme="dracula"] .band-tile{border-radius:11px 11px 3px 3px;padding-top:9px}
+}
+@media(max-width:480px){.topbar{height:auto;min-height:68px;padding:14px 0;flex-wrap:wrap;row-gap:10px}.header-actions{margin-left:auto}}
+
+/* Bat swarm animation when switching to Dracula theme */
+.bat-swarm-overlay{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;overflow:hidden;z-index:99999}
+.bat-flight{position:absolute;left:0;top:0;width:0;height:0;opacity:0;will-change:transform,opacity;animation:bat-flight-arc var(--duration) cubic-bezier(.25,.1,.25,1) var(--delay) forwards}
+.bat-wobble{animation:bat-wobble-anim var(--wobble-speed) ease-in-out infinite alternate}
+.bat-wings{transform-origin:50% 50%;animation:bat-wings-flap var(--flap-speed) ease-in-out infinite alternate}
+.bat-silhouette{width:36px;height:36px;display:block;overflow:visible;filter:drop-shadow(0 0 8px var(--glow))}
+@keyframes bat-flight-arc{
+  0%{transform:translate3d(var(--x0),var(--y0),0) rotate(var(--rot0)) scale(var(--scale));opacity:0}
+  10%{opacity:var(--opacity)}
+  50%{transform:translate3d(var(--xmid),var(--ymid),0) rotate(var(--rotmid)) scale(var(--scale));opacity:var(--opacity)}
+  88%{opacity:var(--opacity)}
+  100%{transform:translate3d(var(--x1),var(--y1),0) rotate(var(--rot1)) scale(var(--scale));opacity:0}
+}
+@keyframes bat-wobble-anim{0%{transform:rotate(-6deg) translateY(-2px)}100%{transform:rotate(6deg) translateY(2px)}}
+@keyframes bat-wings-flap{0%{transform:scaleY(1) scaleX(.96)}100%{transform:scaleY(-.6) scaleX(1.04) translateY(2px)}}
+@media(prefers-reduced-motion:reduce){.theme-switch-label,.toggle i{transition:none}.bat-swarm-overlay{display:none!important}}
