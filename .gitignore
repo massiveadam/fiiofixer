@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+*.tsbuildinfo
+test-results/
+playwright-report/
+.DS_Store
+release/
+.env
+.env.*
+!.env.example
+evidence/hardware/
+*.log
+.agents/
+evidence/
