@@ -1,7 +1,8 @@
-"""Loopback-only EH11 reader. Deliberately has no hardware EQ-write endpoint."""
+"""Loopback-only EH11 control with checked, backed-up EQ writes."""
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 import re
@@ -15,6 +16,10 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 import uvicorn
+from bluez_control import get_paired_eh11_devices, prepare_eh11
+from eq_control import apply_eq, validate_eq, StaleEqError, ApplyError
+
+logger = logging.getLogger('uvicorn.error')
 
 SERVICE = "00001100-04a5-1000-1000-40ed981a04a5"
 TX = "00001101-04a5-1000-1000-40ed981a04a5"
@@ -38,7 +43,7 @@ def validate_query(data: bytes) -> tuple[int, int]:
         raise ValueError("Invalid FiiO frame.")
     command = (data[4], data[5])
     if READ_QUERIES.get(command) != data[6:-1]:
-        raise ValueError("Only confirmed EH11 read queries are enabled. Hardware writes are disabled.")
+        raise ValueError("Raw exchange accepts confirmed read queries only. Use checked Apply for EQ writes.")
     return command
 
 
@@ -87,6 +92,7 @@ class Reader:
 
     def dropped(self, client):
         if self.client is client:
+            logger.info('EH11 control connection disconnected.')
             self.connection_id = None
             try:
                 self.queue.put_nowait(ConnectionError("EH11 disconnected. Reconnect to continue."))
@@ -106,7 +112,11 @@ class Reader:
             raise HTTPException(409, "This Bluetooth session has ended. Reconnect your EH11.")
 
     async def exchange(self, data: bytes) -> bytes:
-        command = validate_query(data)
+        validate_query(data)
+        return await self.transact(data)
+
+    async def transact(self, data: bytes) -> bytes:
+        command = tuple(data[4:6])
         client = self.client
         if not client:
             raise ConnectionError("Connect the EH11 first.")
@@ -139,7 +149,7 @@ async def lifespan(_app):
     await reader.close()
 
 
-app = FastAPI(title="FiiOFixer EH11 local reader", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+app = FastAPI(title="FiiOFixer EH11 local control", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -165,7 +175,7 @@ async def local_only(request: Request, call_next):
 
 @app.get("/api/status")
 async def status():
-    return {"app": "fiiofixer", "version": "0.2.0", "token": TOKEN, "hardwareWritesEnabled": False,
+    return {"app": "fiiofixer", "version": "0.3.0", "token": TOKEN, "hardwareWritesEnabled": True,
             "connectionId": reader.connection_id if reader.client and reader.client.is_connected else None}
 
 
@@ -176,10 +186,13 @@ async def scan():
             raise HTTPException(409, "An EH11 is already connected. Disconnect it in the other tab first.")
         try:
             found = await BleakScanner.discover(timeout=7, return_adv=True)
-            reader.devices = {address: device for address, (device, adv) in found.items()
-                              if re.search(r"\bEH[- ]?11\b", adv.local_name or device.name or "", re.I)}
+            reader.devices = {**await get_paired_eh11_devices(), **{
+                address: device for address, (device, adv) in found.items()
+                if re.search(r"\bEH[- ]?11\b", adv.local_name or device.name or "", re.I)}}
+            logger.info('EH11 discovery found %d device(s), including paired devices.', len(reader.devices))
             return [{"id": address, "name": device.name or "FiiO EH11"} for address, device in reader.devices.items()]
         except Exception as error:
+            logger.warning('EH11 scan failed: %s: %s', type(error).__name__, error)
             if "org.bluez" in str(error) and "ServiceUnknown" in str(error):
                 raise HTTPException(503, "Linux Bluetooth service (BlueZ) is unavailable on this machine. Run the helper on your Linux desktop with Bluetooth enabled.") from error
             raise HTTPException(503, f"Bluetooth scan failed: {error}. Check that your adapter is on.") from error
@@ -199,6 +212,11 @@ class ExchangeBody(SessionBody):
     bytes: list[StrictInt] = Field(min_length=7, max_length=64)
 
 
+class ApplyBody(SessionBody):
+    baseline: list[StrictInt] = Field(min_length=80, max_length=80)
+    target: list[StrictInt] = Field(min_length=80, max_length=80)
+
+
 @app.post("/api/connect")
 async def connect(body: ConnectBody):
     async with reader.lock:
@@ -209,17 +227,23 @@ async def connect(body: ConnectBody):
             raise HTTPException(400, "Choose an EH11 from a fresh scan.")
         await reader.close()
         try:
-            client = BleakClient(device, disconnected_callback=reader.dropped, timeout=12)
-            reader.client = client
-            await client.connect()
-            if not client.services.get_service(SERVICE):
-                raise ValueError("The selected device does not expose the EH11 control service.")
-            await client.start_notify(RX, reader.notify)
+            async def establish():
+                ready_device = await prepare_eh11(device)
+                client = BleakClient(ready_device, disconnected_callback=reader.dropped, timeout=6)
+                reader.client = client
+                await client.connect()
+                if not client.services.get_service(SERVICE):
+                    raise ValueError('EH11 control services changed during connection. Reconnect and try again.')
+                await client.start_notify(RX, reader.notify)
+            await asyncio.wait_for(establish(), 17)
             reader.connection_id = secrets.token_urlsafe(16)
+            logger.info('EH11 control connection ready; notifications enabled.')
             return {"connectionId": reader.connection_id}
         except Exception as error:
+            logger.warning('EH11 control connection failed: %s: %s', type(error).__name__, error)
             await reader.close()
-            raise HTTPException(503, f"Could not connect to EH11: {error}. Close FiiO Control, then retry.") from error
+            detail = str(error) or 'Connection timed out. Turn the headphones off and on, then reconnect.'
+            raise HTTPException(503, f'Could not connect to EH11: {detail}') from error
 
 
 @app.post("/api/disconnect")
@@ -247,8 +271,34 @@ async def exchange(body: ExchangeBody):
             reply = await reader.exchange(data)
             return {"bytes": list(reply)}
         except Exception as error:
+            logger.warning('EH11 read failed: %s: %s', type(error).__name__, error)
             await reader.close()
             raise HTTPException(503, f"EH11 read failed: {error}. Reconnect before retrying.") from error
+
+
+@app.post('/api/apply')
+async def apply(body: ApplyBody):
+    try:
+        baseline, target = bytes(body.baseline), bytes(body.target)
+        validate_eq(baseline)
+        validate_eq(target, writable=True)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    async with reader.lock:
+        reader.require(body.connectionId)
+        try:
+            result = await apply_eq(reader.transact, baseline, target)
+            logger.info('EH11 EQ applied; full readback verified.')
+            return {'bytes': list(result)}
+        except StaleEqError as error:
+            raise HTTPException(409, str(error)) from error
+        except (ApplyError, OSError) as error:
+            logger.warning('EH11 apply failed: %s', error)
+            raise HTTPException(503, str(error)) from error
+        except Exception as error:
+            # Failures before apply_eq starts writing cannot require rollback.
+            logger.warning('EH11 pre-apply read failed: %s', error)
+            raise HTTPException(503, 'Could not read a valid EQ baseline. No EQ writes were sent. Reconnect and try again.') from error
 
 
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])

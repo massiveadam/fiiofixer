@@ -47,7 +47,7 @@ if service_available and unit.exists():
 for relative in ['dist', 'bridge', 'scripts']:
     (app / relative).mkdir(parents=True, exist_ok=True)
 shutil.copytree(source / 'dist', app / 'dist', dirs_exist_ok=True)
-for relative in ['bridge/server.py', 'bridge/requirements.txt', 'scripts/launch-linux.py']:
+for relative in ['bridge/server.py', 'bridge/bluez_control.py', 'bridge/eq_control.py', 'bridge/requirements.txt', 'scripts/launch-linux.py']:
     shutil.copy2(source / relative, app / relative)
 for relative in ['README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md']:
     shutil.copy2(source / relative, app / relative)

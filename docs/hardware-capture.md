@@ -1,6 +1,6 @@
 # First EH11 capture
 
-The goal is to replace conflicting reference assumptions with bytes from the official app talking to your EH11. Do not enable FiiOFixer hardware writes based on synthetic fixtures.
+The goal is to replace conflicting reference assumptions with bytes from the official app talking to your EH11. Linux band writes have now been tested directly on a real EH11. This guide remains the path for settling Q semantics, acoustic filter mapping, unsupported controls and power-cycle persistence. See [protocol evidence](protocol.md) for completed tests.
 
 ## First read
 

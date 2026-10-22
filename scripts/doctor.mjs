@@ -15,6 +15,6 @@ if (process.platform === 'linux') {
 try {
   const reply = await fetch('http://127.0.0.1:8787/api/status', { signal: AbortSignal.timeout(1000) });
   const data = await reply.json();
-  console.log(data.app === 'fiiofixer' ? 'OK Linux helper available; hardware writes disabled.' : 'Port 8787 is serving another app.');
+  console.log(data.app === 'fiiofixer' ? `OK Linux helper available; checked writes ${data.hardwareWritesEnabled ? 'enabled' : 'unavailable, update helper'}.` : 'Port 8787 is serving another app.');
 } catch { console.log('Linux helper not running. Start with npm run linux.'); }
-console.log('Hardware EQ writes and power-cycle persistence remain unverified.');
+console.log('Q scaling and power-cycle persistence remain unverified; Android is read-only.');

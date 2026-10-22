@@ -20,13 +20,13 @@ Use the production build at http://localhost:8787 or the hosted app.
 
 ## Linux package
 
-Run `npm run package:linux`. Extract the archive into a fresh directory, then install using `bash scripts/install-linux.sh --prefix '/tmp/fiiofixer-check/install prefix' --no-service`. Run the installed `bin/fiiofixer --no-browser` and check that `/api/status` identifies `fiiofixer`, version `0.2.0`, and `hardwareWritesEnabled: false`. Never store the response token in evidence.
+Run `npm run package:linux`. Extract the archive into a fresh directory, then install using `bash scripts/install-linux.sh --prefix '/tmp/fiiofixer-check/install prefix' --no-service`. Run the installed `bin/fiiofixer --no-browser` and check that `/api/status` identifies `fiiofixer`, version `0.3.0`, and `hardwareWritesEnabled: true`. Never store the response token in evidence.
 
 Repeat installation to check that updates are safe. Test a regular per-user install with systemd and check that the service is enabled and active. Stop only helper processes created by your verification. The app must still start when the extracted release directory is no longer present.
 
 ## Hardware
 
-Physical Android and EH11 testing are still required. Use [the capture guide](hardware-capture.md) before implementing writes. Confirm reads against FiiO Control, settle Q scaling, and capture real write/ACK/readback bytes. Then test power-cycle persistence and switching playback devices.
+Linux EH11 read/write experiments are recorded below. Remaining checks are Q semantics against FiiO Control, Android connection/writes, acoustic filter behavior, power-cycle persistence and switching playback devices. Use [the capture guide](hardware-capture.md) for the remaining evidence.
 
 ## v0.2 verification results
 
@@ -35,3 +35,11 @@ Verified on Linux with Node 24 and Python 3.12. The editor loaded with its HTTP 
 The kernel adapter was present, but BlueZ was unavailable. No hardware read, write, Android connection or power-cycle persistence is claimed.
 
 The v0.2 release passed 30 TypeScript tests and 10 Python helper tests. A normal per-user installation created an app-menu launcher and an enabled, active user service. Reinstalling with `--no-service` disabled and stopped that service; reinstalling normally enabled it again. The browser update prompt was exercised with a saved draft, and deletion undo restored the removed preset.
+
+## v0.3 hardware verification
+
+On 2026-10-22 the patched installed helper found a paired non-advertising EH11, opened its LE control connection alongside audio, and retained the session through three full EQ reads. Controlled writes tested band-10 gain, frequency, raw Q and shelf bytes, plus band-1 indexing/gain. Every test required the exact write ACK and complete expected readback; all tests restored the original 80-byte EQ. See [protocol evidence](protocol.md) for the limits of those results.
+
+Automated failure tests cover stale baselines, backup failures, missing ACKs after an accepted write, readback mismatches, stopping later writes, verified restoration and a disconnect that prevents restoration. UI tests cover target precision and rejection of unsupported hardware settings. These tests supplement the physical experiments; they do not establish Q semantics, acoustic response, Android writes or power-cycle persistence.
+
+The installed v0.3 UI then performed Connect → Read EQ → band-10 -1 dB → Apply. The returned full EQ differed only in the intended gain bytes. Previous EQ → Apply restored all 80 original bytes. The helper retained its connection throughout both transactions. The production build and 33 TypeScript plus 24 Python tests passed.

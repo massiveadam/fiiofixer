@@ -6,11 +6,17 @@ import { SERVICE, TX, RX } from './protocol';
 
 export interface LogEntry { time: string; direction: 'sent' | 'received' | 'info'; message: string }
 type Logger = (entry: LogEntry) => void;
-export interface ReadTransport {
-  kind: 'browser' | 'linux'; name: string;
+interface DeviceTransport {
+  name: string;
   request(command: Command, payload: number[]): Promise<Uint8Array>;
   disconnect(): void;
 }
+export interface BrowserConnection extends DeviceTransport { kind: 'browser' }
+export interface LinuxConnection extends DeviceTransport {
+  kind: 'linux';
+  apply(baseline: Uint8Array, target: Uint8Array): Promise<Uint8Array>;
+}
+export type ReadTransport = BrowserConnection | LinuxConnection;
 const READ_COMMANDS = new Set(['0:2', '0:3', '3:1', '3:13', '8:1', '8:2']);
 function assertReadCommand(command: Command): void {
   if (!READ_COMMANDS.has(command.join(':'))) throw new Error('Hardware writes are disabled until the EH11 write protocol is captured and verified.');
@@ -23,7 +29,7 @@ export function bluetoothSupport(): string | null {
   return null;
 }
 
-class BrowserTransport implements ReadTransport {
+class BrowserTransport implements BrowserConnection {
   readonly kind = 'browser';
   readonly name: string;
   private decoder = new FrameDecoder();
@@ -79,7 +85,7 @@ class BrowserTransport implements ReadTransport {
   }
   disconnect(): void { this.close(new Error('Disconnected. Your local EQ draft is still here.')); }
 }
-export async function connectBrowser(logger: Logger, onDisconnect: () => void): Promise<ReadTransport> {
+export async function connectBrowser(logger: Logger, onDisconnect: () => void): Promise<BrowserConnection> {
   const unsupported = bluetoothSupport();
   if (unsupported) throw new Error(unsupported);
   const device = await navigator.bluetooth.requestDevice({
@@ -101,20 +107,25 @@ export async function connectBrowser(logger: Logger, onDisconnect: () => void): 
 
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null; }
 export interface BridgeDevice { id: string; name: string }
+export class BridgeRequestError extends Error {
+  constructor(readonly status: number, message: string) { super(message); }
+}
 export class LinuxBridge {
   private token: string | null = null;
+  private writable = false;
   async status(): Promise<void> {
     const response = await fetch('/api/status', { signal: AbortSignal.timeout(2000) });
     if (!response.ok) throw new Error('Linux Bluetooth helper is unavailable. Run npm run linux.');
     const data: unknown = await response.json();
     if (!isRecord(data) || data.app !== 'fiiofixer' || typeof data.token !== 'string') throw new Error('Start the FiiOFixer Linux helper with npm run linux.');
     this.token = data.token;
+    this.writable = data.hardwareWritesEnabled === true;
   }
   async post(path: string, body: unknown, timeout = 12000): Promise<unknown> {
     if (!this.token) await this.status();
     const response = await fetch(`/api/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-FiiOFixer-Session': this.token ?? '' }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeout), keepalive: path === 'disconnect' });
     const data: unknown = await response.json();
-    if (!response.ok) throw new Error(isRecord(data) && typeof data.detail === 'string' ? data.detail : 'Linux Bluetooth request failed.');
+    if (!response.ok) throw new BridgeRequestError(response.status, isRecord(data) && typeof data.detail === 'string' ? data.detail : 'Linux Bluetooth request failed.');
     return data;
   }
   async scan(): Promise<BridgeDevice[]> {
@@ -125,7 +136,7 @@ export class LinuxBridge {
       return { id: item.id, name: item.name };
     });
   }
-  async connect(device: BridgeDevice, logger: Logger, onDisconnect: () => void): Promise<ReadTransport> {
+  async connect(device: BridgeDevice, logger: Logger, onDisconnect: () => void): Promise<LinuxConnection> {
     const connected = await this.post('connect', { id: device.id }, 20000);
     if (!isRecord(connected) || typeof connected.connectionId !== 'string') throw new Error('The Linux helper returned an invalid session.');
     const connectionId = connected.connectionId;
@@ -145,9 +156,26 @@ export class LinuxBridge {
         if (!isRecord(status) || status.connectionId !== connectionId) throw new Error('Linux Bluetooth disconnected.');
       }).catch(error => { log(logger, 'info', errorMessage(error)); disconnect(); });
     }, 2500);
-    log(logger, 'info', `Connected to ${device.name} through Linux BlueZ. Hardware writes are disabled.`);
+    log(logger, 'info', `Connected to ${device.name} through Linux BlueZ.`);
+    const readReply = (data: unknown): Uint8Array => {
+      if (!isRecord(data) || !Array.isArray(data.bytes) || !data.bytes.every((byte: unknown) => typeof byte === 'number' && Number.isInteger(byte) && byte >= 0 && byte <= 255)) throw new Error('The Linux helper returned an invalid packet.');
+      return Uint8Array.from(data.bytes);
+    };
     return {
       kind: 'linux', name: device.name, disconnect,
+      apply: async (baseline, target) => {
+        if (!this.writable) throw new Error('Update the Linux helper to enable checked EQ writes.');
+        if (closed) throw new Error('The Linux Bluetooth session is closed. Reconnect first.');
+        if (busy) throw new Error('Another Bluetooth request is still in progress.');
+        busy = true;
+        try {
+          log(logger, 'info', 'Applying EQ with backup and full readback after every changed band.');
+          const reply = readReply(await this.post('apply', { connectionId, baseline: Array.from(baseline), target: Array.from(target) }, 240000));
+          if (reply.length !== target.length || !reply.every((byte, i) => byte === target[i])) throw new Error('Apply response did not match the requested EQ. Read EQ before continuing.');
+          log(logger, 'received', hex(reply));
+          return reply;
+        } finally { busy = false; }
+      },
       request: async (command, payload) => {
         assertReadCommand(command);
         if (closed) throw new Error('The Linux Bluetooth session is closed. Reconnect first.');
@@ -157,8 +185,7 @@ export class LinuxBridge {
           const bytes = packet(command, payload);
           log(logger, 'sent', hex(bytes));
           const data = await this.post('exchange', { connectionId, bytes: Array.from(bytes) });
-          if (!isRecord(data) || !Array.isArray(data.bytes) || !data.bytes.every((byte: unknown) => typeof byte === 'number' && Number.isInteger(byte) && byte >= 0 && byte <= 255)) throw new Error('The Linux helper returned an invalid packet.');
-          const reply = Uint8Array.from(data.bytes);
+          const reply = readReply(data);
           const parsed = parsePacket(reply);
           if (parsed.command[0] !== command[0] || parsed.command[1] !== command[1]) throw new Error('The Linux helper returned a reply to another command.');
           log(logger, 'received', hex(reply));

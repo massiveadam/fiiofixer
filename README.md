@@ -2,7 +2,7 @@
 
 EQ editor for FiiO EH11 headphones. Import Squig.link filters, edit ten bands, and move presets between computers without an account.
 
-**Hardware EQ writes are not available yet.** Bluetooth supports reads only. Q scaling and persistence on the headphones still need verification with a real EH11. Demo mode simulates applying and verifying EQ.
+Linux supports checked EQ writes with automatic backups and exact readback. Gain, frequency, raw Q and shelf records were tested on a real EH11 and restored afterwards. Q scaling against FiiO Control and persistence after power off still need verification. Android Bluetooth remains read-only.
 
 [Open the app](https://massiveadam.github.io/fiiofixer/) · [Download for Linux](https://github.com/massiveadam/fiiofixer/releases/latest)
 
@@ -46,9 +46,15 @@ Drafts also save automatically in the current browser. There is no account, anal
 Import its parametric `Filters.txt` using **Import EQ**. Export offers compatible `.txt` and a single-preset JSON backup.
 
 - Peaking filters use `PK`; shelves use `LSC` and `HSC`. Q precision is retained.
-- Preamp and OFF filters are preserved. Preamp is not sent to headphones; the graph shows filters only.
+- Preamp and OFF filters are preserved. Hardware apply requires 0 dB preamp and enabled bands; bypass mapping is unverified. The graph shows filters only.
 - Up to ten filters. Separate left/right filters, shared measurement URLs, and graphic EQ exports are not supported.
-- Local editing allows ±40 dB to retain imports. This is not an EH11 hardware limit.
+- Local editing allows ±40 dB to retain imports. Hardware apply currently allows ±12 dB and peaking/shelf filters. Pass filters stay local.
+
+## Applying EQ on Linux
+
+Connect, read the EQ, edit, and choose **Apply to headphones**. The helper checks that the headphone EQ still matches the read baseline, saves a private backup, and verifies every changed band by reading the full EQ. A failed check stops apply and attempts restoration. The app reports whether restoration was verified.
+
+**Previous EQ** loads the backup as a draft. Choose **Apply to headphones** to restore it. Raw helper backups are also retained under `~/.local/share/fiiofixer/backups`. Open a `.bin` file with **Import EQ**, then Apply to restore it. Changes are sent only when you press Apply, never while dragging the graph.
 
 ## Development
 
@@ -79,10 +85,10 @@ npm run doctor
 npm run package:linux
 ```
 
-CI tests each push and pull request. Pushes to `main` deploy the HTTPS app through GitHub Pages. The Linux archive contains a prebuilt editor, the local reader, and installer scripts. It contains no virtual environment, account data, or hardware logs.
+CI tests each push and pull request. Pushes to `main` deploy the HTTPS app through GitHub Pages. The Linux archive contains a prebuilt editor, the local Bluetooth helper, and installer scripts. It contains no virtual environment, account data, or hardware logs.
 
 See [verification](docs/verification.md), [protocol evidence](docs/protocol.md), and [hardware capture steps](docs/hardware-capture.md).
 
 ## Credits
 
-Independent project, not affiliated with FiiO. Protocol research by [Jerome O'Flaherty / DevicePEQ](https://github.com/jeromeof/devicePEQ), licensed 0BSD. FiiOFixer independently implements the read path. Fonts, icons, and library notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Project code is [MIT licensed](LICENSE).
+Independent project, not affiliated with FiiO. Protocol research by [Jerome O'Flaherty / DevicePEQ](https://github.com/jeromeof/devicePEQ), licensed 0BSD. FiiOFixer independently implements the control path. Fonts, icons, and library notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Project code is [MIT licensed](LICENSE).

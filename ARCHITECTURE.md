@@ -9,15 +9,15 @@ The design uses a cool blue work surface, white plotting paper, cobalt curve, an
 ## Contracts and ownership
 
 - `eq.ts` owns validated ten-band EQ state, supported filter types, imports, and curve calculations. Unknown device filters stop the read rather than silently changing them.
-- `protocol.ts` owns packet framing and read decoding. Q is explicitly interpreted using either divisor 100 or divisor 10 because upstream evidence disagrees. No EQ-write encoder is included.
+- `protocol.ts` owns packet framing and read decoding. Q is explicitly interpreted using either divisor 100 or divisor 10 because upstream evidence disagrees. `hardware.ts` validates hardware settings and encodes a quantized target frame while keeping imported draft precision.
 - `transport.ts` owns serialized request/reply pairing, notification framing, disconnect cleanup, and timeout invalidation. Each reply must match its command. No command flood or automatic write retries.
-- Both real transports enforce confirmed read commands only. The Linux helper also validates exact read payloads. Timeout or connection loss closes that session. A future writer must touch only changed bands, require ACKs and exact full readback, and preserve a backup. That writer cannot be implemented from the conflicting reference alone.
+- Browser Bluetooth enforces read commands only. Linux keeps raw exchange read-only and exposes a separate checked apply transaction. `bridge/eq_control.py` owns fresh-baseline checks, durable backup, changed-band writes, exact ACK/readback and rollback. No automatic apply retries.
 - `App.tsx` owns the draft, history, local presets, and explicit user actions. Draft and device state remain distinct. Demo transport can never write real hardware.
-- `bridge/server.py` exposes discovery, connection, and read-query exchange only on loopback. POST requests require a session token. Host/Origin checks reject cross-site access. A connection ID prevents stale tabs from closing a newer session. It serves `dist` for the Linux launch command.
+- `bridge/server.py` exposes discovery, connection, read-query exchange and checked EQ apply only on loopback. POST requests require a session token. Host/Origin checks reject cross-site access. A connection ID prevents stale tabs from closing a newer session. It serves `dist` for the Linux launch command.
 
 ## Limits
 
-Readback proves the current device parameters, not acoustic response or persistence across power cycles. Apply/readback is currently implemented only in demo mode. The first hardware session must compare frequency/Q/type with FiiO Control before writing. EQ on/off and hardware preset switching are deliberately omitted because the reference marks their write commands unconfirmed. App presets live locally; they are not claims about hardware slots. Global preamp and per-filter ON/OFF values from Squig.link are preserved for editing and export, but no hardware mapping is claimed. Draft history includes preamp, and disabled filters retain their parameters while contributing zero to the graph.
+Readback proves the current device parameters, not acoustic response or persistence across power cycles. Linux writes were tested on a real EH11 with full restoration. Q interpretation remains explicitly selectable and needs comparison with FiiO Control. Android writes remain disabled. EQ on/off and hardware preset switching are deliberately omitted because the reference marks their write commands unconfirmed. App presets live locally; they are not claims about hardware slots. Global preamp and per-filter ON/OFF values from Squig.link are preserved for editing and export, but no hardware mapping is claimed. Draft history includes preamp, and disabled filters retain their parameters while contributing zero to the graph.
 
 Sources and provenance: see `docs/protocol.md`. Browser testing and the independent protocol audit do not replace an EH11 hardware test.
 
@@ -32,3 +32,5 @@ The PWA precaches public editor assets and fonts, never API responses or Bluetoo
 The visual palette keeps blue plotting lines and an orange selected band. Manrope carries controls; IBM Plex Mono is used for numbers. The graph is the main workspace. Promotional copy and the headphone illustration are removed; installation and protocol detail sit behind explicit controls.
 
 Linux releases include a root-path production build, pinned reader requirements and a per-user installer. The installer copies public app files, creates an isolated venv and app-menu launcher, and enables a user service when available. Updates do not touch browser data or system Bluetooth settings.
+
+`bridge/bluez_control.py` prepares the dual-mode connection through normal BlueZ Connect calls, checks a real GATT read rather than cached UUIDs, and discovers paired EH11s even when they are not advertising. It never pairs, removes devices or changes adapter settings.

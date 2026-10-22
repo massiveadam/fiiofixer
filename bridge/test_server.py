@@ -1,6 +1,8 @@
 """Synthetic protocol and API boundary tests, not an EH11 hardware certification."""
 import asyncio
 import unittest
+from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
 from fastapi.testclient import TestClient
 from server import app, TOKEN, Frames, Reader, validate_query
 
@@ -13,10 +15,10 @@ class ApiTests(unittest.TestCase):
         self.client = TestClient(app, base_url="http://localhost:8787")
         self.headers = {"X-FiiOFixer-Session": TOKEN}
 
-    def test_status_identifies_the_read_only_helper(self):
+    def test_status_identifies_checked_write_support(self):
         data = self.client.get("/api/status").json()
         self.assertEqual(data["app"], "fiiofixer")
-        self.assertFalse(data["hardwareWritesEnabled"])
+        self.assertTrue(data["hardwareWritesEnabled"])
         self.assertEqual(data["token"], TOKEN)
 
     def test_cross_site_and_dns_rebinding_requests_are_rejected(self):
@@ -31,7 +33,7 @@ class ApiTests(unittest.TestCase):
     def test_eq_write_is_rejected_before_any_bluetooth_operation(self):
         result = self.client.post("/api/exchange", json={"connectionId": "none", "bytes": list(WRITE)}, headers=self.headers)
         self.assertEqual(result.status_code, 400)
-        self.assertIn("Hardware writes are disabled", result.json()["detail"])
+        self.assertIn("Use checked Apply", result.json()["detail"])
 
     def test_unknown_query_payload_is_rejected(self):
         bad = bytearray(READ); bad[8] = 8
@@ -48,6 +50,38 @@ class ApiTests(unittest.TestCase):
         data[5] = 0.5
         self.assertEqual(self.client.post("/api/exchange", json={"connectionId": "x", "bytes": data}, headers=self.headers).status_code, 422)
 
+    def test_apply_rejects_invalid_bytes_before_accessing_bluetooth(self):
+        body = {'connectionId': 'none', 'baseline': [0]*80, 'target': [0]*80}
+        self.assertEqual(self.client.post('/api/apply', json=body, headers=self.headers).status_code, 400)
+        body['target'][0] = 256
+        self.assertEqual(self.client.post('/api/apply', json=body, headers=self.headers).status_code, 400)
+        body['target'][0] = 0.5
+        self.assertEqual(self.client.post('/api/apply', json=body, headers=self.headers).status_code, 422)
+
+    def test_apply_validates_access_session_and_hardware_limits(self):
+        from test_eq_control import baseline
+        body = {'connectionId': 'none', 'baseline': list(baseline()), 'target': list(baseline())}
+        self.assertEqual(self.client.post('/api/apply', json=body).status_code, 403)
+        self.assertEqual(self.client.post('/api/apply', content='{}', headers=self.headers).status_code, 415)
+        self.assertEqual(self.client.post('/api/apply', json=body, headers=self.headers).status_code, 409)
+        body['target'][15] = 3
+        self.assertEqual(self.client.post('/api/apply', json=body, headers=self.headers).status_code, 400)
+        body['target'][15] = 0; body['target'][10] = 121
+        self.assertEqual(self.client.post('/api/apply', json=body, headers=self.headers).status_code, 400)
+
+    def test_apply_maps_stale_and_invalid_live_baselines_to_actionable_errors(self):
+        from test_eq_control import baseline
+        from eq_control import StaleEqError
+        from server import reader
+        body = {'connectionId': 'test', 'baseline': list(baseline()), 'target': list(baseline())}
+        with patch.object(reader, 'require'), patch('server.apply_eq', new=AsyncMock(side_effect=StaleEqError('Read EQ again'))):
+            result = self.client.post('/api/apply', json=body, headers=self.headers)
+            self.assertEqual(result.status_code, 409)
+        with patch.object(reader, 'require'), patch('server.apply_eq', new=AsyncMock(side_effect=ValueError('Bad live EQ'))):
+            result = self.client.post('/api/apply', json=body, headers=self.headers)
+            self.assertEqual(result.status_code, 503)
+            self.assertIn('No EQ writes were sent', result.json()['detail'])
+
 
 class FramingTests(unittest.TestCase):
     def test_fragmentation_and_embedded_ff(self):
@@ -58,6 +92,14 @@ class FramingTests(unittest.TestCase):
 
 
 class ReadTests(unittest.IsolatedAsyncioTestCase):
+    async def test_scan_includes_paired_headphones_that_are_not_advertising(self):
+        from server import scan, reader
+        device = SimpleNamespace(address='test-eh11', name='FIIO EH11')
+        with patch('server.BleakScanner.discover', new=AsyncMock(return_value={})), patch('server.get_paired_eh11_devices', new=AsyncMock(return_value={device.address: device}), create=True):
+            result = await scan()
+        self.assertEqual(result, [{'id': 'test-eh11', 'name': 'FIIO EH11'}])
+        self.assertIs(reader.devices['test-eh11'], device)
+
     async def test_reader_waits_for_matching_command_and_assembles_notifications(self):
         reader = Reader()
         reply = bytes.fromhex("f1 10 00 09 03 01 01 01 ff")
