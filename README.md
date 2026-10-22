@@ -48,13 +48,18 @@ Import its parametric `Filters.txt` using **Import EQ**. Export offers compatibl
 - Peaking filters use `PK`; shelves use `LSC` and `HSC`. Q precision is retained.
 - Preamp and OFF filters are preserved. Hardware apply requires 0 dB preamp and enabled bands; bypass mapping is unverified. The graph shows filters only.
 - Up to ten filters. Separate left/right filters, shared measurement URLs, and graphic EQ exports are not supported.
-- Local editing allows ±40 dB to retain imports. Hardware apply currently allows ±12 dB and peaking/shelf filters. Pass filters stay local.
+- Gain controls and graph edits use ±12 dB per band. Imports above that range are preserved for export and must be adjusted before applying. This is the app’s supported range, not proof of the firmware’s absolute limit. Peaking/shelf filters can be applied; pass filters stay local.
 
 ## Applying EQ on Linux
 
-Connect, read the EQ, edit, and choose **Apply to headphones**. The helper checks that the headphone EQ still matches the read baseline, saves a private backup, and verifies every changed band by reading the full EQ. A failed check stops apply and attempts restoration. The app reports whether restoration was verified.
+Connecting automatically reads the current headphone EQ into the editor. Undo recovers the draft that was open before connection. Edit and choose **Apply to headphones**. The helper checks that the headphone EQ still matches the read baseline, saves a private backup, and verifies every changed band by reading the full EQ. A failed check stops apply and attempts restoration. The app reports whether restoration was verified.
 
-**Previous EQ** loads the backup as a draft. Choose **Apply to headphones** to restore it. Raw helper backups are also retained under `~/.local/share/fiiofixer/backups`. Open a `.bin` file with **Import EQ**, then Apply to restore it. Changes are sent only when you press Apply, never while dragging the graph.
+**Previous EQ** loads the backup as a draft. Choose **Apply to headphones** to restore it. Raw helper backups are also retained under `~/.local/share/fiiofixer/backups`. Open a `.bin` file with **Import EQ**, then Apply to restore it. With Live EQ off, changes are sent only when you press Apply.
+
+
+Turn on **Live EQ** to hear edits while adjusting the graph or numeric controls. It starts off on every connection. Edits are coalesced at 150 ms with one checked write in flight; newer edits replace pending slider positions. The controls remain editable while readback is pending. A failed check stops live mode without retrying automatically.
+
+Turning Live EQ off cancels unsent edits, waits for the current write, and keeps the last heard EQ. **Previous EQ** retains the EQ from when live mode started. Loading it while live mode is on restores it after the next checked update. The helper saves one backup per live session rather than one per slider movement.
 
 ## Development
 

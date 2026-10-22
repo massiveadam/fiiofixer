@@ -15,6 +15,11 @@ export interface BrowserConnection extends DeviceTransport { kind: 'browser' }
 export interface LinuxConnection extends DeviceTransport {
   kind: 'linux';
   apply(baseline: Uint8Array, target: Uint8Array): Promise<Uint8Array>;
+  startLive(baseline: Uint8Array): Promise<LiveConnection>;
+}
+export interface LiveConnection {
+  apply(baseline: Uint8Array, target: Uint8Array): Promise<Uint8Array>;
+  stop(): Promise<void>;
 }
 export type ReadTransport = BrowserConnection | LinuxConnection;
 const READ_COMMANDS = new Set(['0:2', '0:3', '3:1', '3:13', '8:1', '8:2']);
@@ -113,6 +118,7 @@ export class BridgeRequestError extends Error {
 export class LinuxBridge {
   private token: string | null = null;
   private writable = false;
+  private liveSupported = false;
   async status(): Promise<void> {
     const response = await fetch('/api/status', { signal: AbortSignal.timeout(2000) });
     if (!response.ok) throw new Error('Linux Bluetooth helper is unavailable. Run npm run linux.');
@@ -120,6 +126,7 @@ export class LinuxBridge {
     if (!isRecord(data) || data.app !== 'fiiofixer' || typeof data.token !== 'string') throw new Error('Start the FiiOFixer Linux helper with npm run linux.');
     this.token = data.token;
     this.writable = data.hardwareWritesEnabled === true;
+    this.liveSupported = data.liveEqEnabled === true;
   }
   async post(path: string, body: unknown, timeout = 12000): Promise<unknown> {
     if (!this.token) await this.status();
@@ -161,19 +168,50 @@ export class LinuxBridge {
       if (!isRecord(data) || !Array.isArray(data.bytes) || !data.bytes.every((byte: unknown) => typeof byte === 'number' && Number.isInteger(byte) && byte >= 0 && byte <= 255)) throw new Error('The Linux helper returned an invalid packet.');
       return Uint8Array.from(data.bytes);
     };
-    return {
-      kind: 'linux', name: device.name, disconnect,
-      apply: async (baseline, target) => {
+    const applyTarget = async (baseline: Uint8Array, target: Uint8Array, liveId?: string): Promise<Uint8Array> => {
         if (!this.writable) throw new Error('Update the Linux helper to enable checked EQ writes.');
         if (closed) throw new Error('The Linux Bluetooth session is closed. Reconnect first.');
         if (busy) throw new Error('Another Bluetooth request is still in progress.');
         busy = true;
         try {
           log(logger, 'info', 'Applying EQ with backup and full readback after every changed band.');
-          const reply = readReply(await this.post('apply', { connectionId, baseline: Array.from(baseline), target: Array.from(target) }, 240000));
+          const reply = readReply(await this.post('apply', { connectionId, baseline: Array.from(baseline), target: Array.from(target), liveId }, 240000));
           if (reply.length !== target.length || !reply.every((byte, i) => byte === target[i])) throw new Error('Apply response did not match the requested EQ. Read EQ before continuing.');
           log(logger, 'received', hex(reply));
           return reply;
+        } finally { busy = false; }
+    };
+    return {
+      kind: 'linux', name: device.name, disconnect,
+      apply: applyTarget,
+      startLive: async baseline => {
+        if (!this.liveSupported) throw new Error('Update the Linux helper to use Live EQ.');
+        if (closed || busy) throw new Error('Bluetooth is unavailable or busy. Try again when the current request finishes.');
+        busy = true;
+        try {
+          const started = await this.post('live/start', { connectionId, baseline: Array.from(baseline) });
+          if (!isRecord(started) || typeof started.liveId !== 'string') throw new Error('Invalid Live EQ session. Reconnect before continuing.');
+          const liveId = started.liveId;
+          let ended = false;
+          return {
+            apply: (before, target) => {
+              if (ended) return Promise.reject(new Error('Live EQ has ended.'));
+              return applyTarget(before, target, liveId);
+            },
+            stop: async () => {
+              if (ended) return;
+              ended = true;
+              if (!closed) {
+                try { await this.post('live/stop', { connectionId, liveId }); }
+                catch (error) { disconnect(); throw error; }
+              }
+            },
+          };
+        } catch (error) {
+          // A lost start reply may have created a live session. Release it by
+          // closing the Bluetooth connection; do not leave an unknown live ID.
+          if (!(error instanceof BridgeRequestError && error.status >= 400 && error.status < 500)) disconnect();
+          throw error;
         } finally { busy = false; }
       },
       request: async (command, payload) => {

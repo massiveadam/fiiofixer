@@ -91,4 +91,22 @@ describe('Linux navigation cleanup', () => {
     transport.disconnect();
     expect(fetch).toHaveBeenCalledWith('/api/disconnect', expect.objectContaining({ keepalive: true, body: JSON.stringify({ connectionId: 'test-session' }) }));
   });
+  it.each(['start', 'stop'])('closes Bluetooth after a lost live %s reply so a live ID cannot remain stranded', async failure => {
+    const fetch = vi.fn(async (path: string) => {
+      if (path === `/api/live/${failure}`) throw new Error('Connection lost');
+      const data = path === '/api/status' ? { app: 'fiiofixer', token: 'test-token', hardwareWritesEnabled: true, liveEqEnabled: true }
+        : path === '/api/connect' ? { connectionId: 'owned' } : path === '/api/live/start' ? { liveId: 'live' } : {};
+      return { ok: true, json: async () => data };
+    });
+    vi.stubGlobal('fetch', fetch);
+    const lost = vi.fn();
+    const transport = await new LinuxBridge().connect({ id: 'device', name: 'FIIO EH11' }, () => {}, lost);
+    if (failure === 'start') await expect(transport.startLive(new Uint8Array())).rejects.toThrow('Connection lost');
+    else {
+      const live = await transport.startLive(new Uint8Array());
+      await expect(live.stop()).rejects.toThrow('Connection lost');
+    }
+    expect(lost).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledWith('/api/disconnect', expect.objectContaining({ keepalive: true }));
+  });
 });

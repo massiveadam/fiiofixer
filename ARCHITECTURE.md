@@ -34,3 +34,11 @@ The visual palette keeps blue plotting lines and an orange selected band. Manrop
 Linux releases include a root-path production build, pinned reader requirements and a per-user installer. The installer copies public app files, creates an isolated venv and app-menu launcher, and enables a user service when available. Updates do not touch browser data or system Bluetooth settings.
 
 `bridge/bluez_control.py` prepares the dual-mode connection through normal BlueZ Connect calls, checks a real GATT read rather than cached UUIDs, and discovers paired EH11s even when they are not advertising. It never pairs, removes devices or changes adapter settings.
+
+## Live EQ
+
+We compared repeatedly invoking manual Apply from a React effect with a helper-owned live session plus a dedicated client queue. The latter keeps the starting backup stable, bounds backup creation, and makes stale session ownership explicit. `LiveEqWriter` in `liveEq.ts` owns the newest pending raw target, one in-flight checked write and the last verified baseline. A 150 ms timer coalesces continuous movement without waiting for dragging to stop. Readback updates the device snapshot but never overwrites newer editor values. Stop cancels unsent targets and awaits the current write.
+
+The helper creates a random live ID bound to its existing Bluetooth connection after reading and backing up the starting EQ. Apply must include the matching live ID while live mode is active. The existing ACK/full-readback transaction and rollback remain unchanged; only repeated disk backups are skipped inside an already-backed-up live session. Failure invalidates that session. Manual Apply cannot bypass an active live session. Disconnect invalidates the connection and live ID. Live mode is never restored across page reloads; PWA updates are disabled while it is active.
+
+Every initial connection reads and loads hardware EQ, with the previous draft in Undo history. Later manual Read EQ preserves the editor draft. Gain controls and graph movement are limited to ±12 dB; imported values outside that range remain intact for export and are rejected by hardware apply.

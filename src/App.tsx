@@ -4,11 +4,12 @@ import { ArrowDownToLine, ArrowUpFromLine, Bluetooth, Check, ChevronDown, Copy, 
 import { copyBands, exportApo, exportPreset, FILTER_NAMES, flatBands, formatFrequency, isFilterType, parsePreset, sameBands, validateBands, validatePreamp } from './eq';
 import type { Band, EqSettings, Preset } from './eq';
 import { Graph } from './Graph';
+import { LiveEqWriter } from './liveEq';
 import { HARDWARE_BACKUP_KEY, hardwareTarget, readHardwareBackup } from './hardware';
 import { parseEq } from './protocol';
 import type { QScale } from './protocol';
 import { bluetoothSupport, BridgeRequestError, connectBrowser, DemoTransport, errorMessage, LinuxBridge } from './transport';
-import type { BridgeDevice, LogEntry, Transport } from './transport';
+import type { BridgeDevice, LiveConnection, LogEntry, Transport } from './transport';
 import { DRAFT_KEY, LIBRARY_KEY, MAX_BACKUP_SIZE, exportLibrary, mergeLibrary, parseLibrary, readDraft, readLibrary } from './storage';
 import { PwaControl } from './PwaControl';
 const WEB_URL = 'https://massiveadam.github.io/fiiofixer/';
@@ -50,6 +51,10 @@ export function App() {
   const [devices, setDevices] = useState<BridgeDevice[]>([]);
   const [hardwareBackup, setHardwareBackup] = useState(() => readHardwareBackup(localStorage));
   const [demoVerified, setDemoVerified] = useState(false);
+  const [liveState, setLiveState] = useState<'off' | 'on' | 'stopping'>('off');
+  const [livePending, setLivePending] = useState(false);
+  const liveWriter = useRef<LiveEqWriter | null>(null);
+  const liveConnection = useRef<LiveConnection | null>(null);
   const session = useRef<Transport | null>(null);
   const bridge = useRef(new LinuxBridge());
   const busyRef = useRef(false);
@@ -73,7 +78,7 @@ export function App() {
   const current = bands[selected];
   const log = (entry: LogEntry): void => setLogs(previous => [...previous.slice(-199), entry]);
   useEffect(() => {
-    const leave = (): void => { session.current?.disconnect(); };
+    const leave = (): void => { void liveWriter.current?.stop(); session.current?.disconnect(); };
     window.addEventListener('pagehide', leave);
     return () => { window.removeEventListener('pagehide', leave); leave(); };
   }, []);
@@ -94,8 +99,14 @@ export function App() {
   function replaceDraft(next: Band[], name: string, preamp = 0): void {
     checkpoint(); setBands(copyBands(next)); setPreampDb(preamp); setProfileName(name); draftTouched.current = true; setDemoVerified(false);
   }
-  function disconnect(): void { session.current?.disconnect(); }
+  function disconnect(): void {
+    const transport = session.current;
+    if (!liveWriter.current && !liveConnection.current) { transport?.disconnect(); return; }
+    void run('applying', async () => { try { await stopLive(); } finally { transport?.disconnect(); } });
+  }
   function lostConnection(): void {
+    void liveWriter.current?.stop(); liveWriter.current = null; liveConnection.current = null;
+    setLiveState('off'); setLivePending(false);
     session.current = null; setConnection({ kind: 'offline' }); setSnapshot(null); setDemoVerified(false);
     setNotice('Disconnected. Draft kept.');
   }
@@ -111,8 +122,13 @@ export function App() {
     const next = transport.kind === 'demo' ? await transport.read() : { bands: parseEq(raw ?? new Uint8Array(), qScale), preampDb: null };
     if (session.current !== transport) return;
     setSnapshot({ ...next, at: new Date().toISOString(), raw });
-    if (initial && !draftTouched.current) { setBands(copyBands(next.bands)); setPreampDb(next.preampDb ?? 0); setProfileName(isDemo || transport.kind === 'demo' ? 'Demo starting point' : 'Headphone EQ'); }
-    setNotice(transport.kind === 'demo' ? 'Demo EQ loaded.' : 'EQ read. Check Q values against FiiO Control.');
+    if (initial) {
+      if (!sameBands(bandsRef.current, next.bands) || preampRef.current !== (next.preampDb ?? 0)) checkpoint();
+      setBands(copyBands(next.bands)); setPreampDb(next.preampDb ?? 0);
+      setProfileName(transport.kind === 'demo' ? 'Demo starting point' : 'Headphone EQ');
+      draftTouched.current = false;
+    }
+    setNotice(transport.kind === 'demo' ? 'Demo EQ loaded.' : initial ? 'Headphone EQ loaded.' : 'EQ read.');
   }
   async function attach(transport: Transport): Promise<void> {
     session.current = transport; setConnection({ kind: 'connected', transport });
@@ -171,6 +187,65 @@ export function App() {
       setNotice('Demo verified. No headphones changed.');
     });
   }
+
+  async function stopLive(): Promise<void> {
+    const writer = liveWriter.current, active = liveConnection.current;
+    liveWriter.current = null; liveConnection.current = null;
+    setLiveState('stopping');
+    try { await writer?.stop(); await active?.stop(); }
+    finally { setLiveState('off'); setLivePending(false); }
+  }
+
+  async function toggleLive(): Promise<void> {
+    if (liveState === 'on') {
+      await run('applying', async () => { await stopLive(); setNotice('Live EQ off. Last heard EQ kept.'); });
+      return;
+    }
+    const transport = session.current;
+    if (!transport || transport.kind !== 'linux') return;
+    await run('reading', async () => {
+      hardwareTarget({ bands: bandsRef.current, preampDb: preampRef.current }, qScale);
+      const baseline = snapshot?.raw;
+      if (!baseline) throw new Error('Read EQ before starting Live EQ.');
+      const previousBackup = localStorage.getItem(HARDWARE_BACKUP_KEY);
+      try { localStorage.setItem(HARDWARE_BACKUP_KEY, JSON.stringify(Array.from(baseline))); }
+      catch { throw new Error('Could not save the starting EQ backup. Free browser storage before starting Live EQ.'); }
+      let active: LiveConnection;
+      try { active = await transport.startLive(baseline); }
+      catch (error) {
+        if (previousBackup === null) localStorage.removeItem(HARDWARE_BACKUP_KEY);
+        else localStorage.setItem(HARDWARE_BACKUP_KEY, previousBackup);
+        throw error;
+      }
+      if (session.current !== transport) { await active.stop(); return; }
+      setHardwareBackup(baseline);
+      liveConnection.current = active;
+      liveWriter.current = new LiveEqWriter(baseline,
+        (before, target) => active.apply(before, target),
+        raw => {
+          if (session.current !== transport) return;
+          setSnapshot({ bands: parseEq(raw, qScale), preampDb: null, raw, at: new Date().toISOString() });
+        },
+        error => {
+          if (session.current !== transport) return;
+          setSnapshot(null);
+          const message = `Live EQ stopped. ${errorMessage(error)}`;
+          setError(message); setNotice(message);
+          void stopLive().catch(e => log({ time: new Date().toISOString(), direction: 'info', message: errorMessage(e) }));
+        },
+        setLivePending);
+      setLiveState('on'); setNotice('Live EQ on. Edits go to your headphones.');
+    });
+  }
+
+  useEffect(() => {
+    if (liveState !== 'on' || !liveWriter.current) return;
+    try { liveWriter.current.submit(hardwareTarget({ bands, preampDb }, qScale)); }
+    catch (error) {
+      const message = `Live EQ stopped. ${errorMessage(error)}`;
+      void stopLive().then(() => { setError(message); setNotice(message); }).catch(e => setError(errorMessage(e)));
+    }
+  }, [bands, preampDb, qScale, liveState]);
   function undo(): void {
     const previous = past.at(-1); if (!previous) return;
     setFuture(next => [{ bands: copyBands(bands), preampDb }, ...next]); setPast(past.slice(0, -1)); setBands(previous.bands); setPreampDb(previous.preampDb); draftTouched.current = true; setDemoVerified(false);
@@ -209,7 +284,7 @@ export function App() {
       setQScale(next); setError(null);
     } catch (e) { setError(errorMessage(e)); }
   }
-  const draftStatus = demoVerified && !changed ? 'Demo verified' : changed ? 'Local changes' : snapshot ? (isDemo ? 'Demo EQ loaded' : 'Headphone EQ loaded') : 'Local draft';
+  const draftStatus = liveState === 'on' ? (livePending ? 'Live EQ updating…' : 'Live EQ') : demoVerified && !changed ? 'Demo verified' : changed ? 'Local changes' : snapshot ? (isDemo ? 'Demo EQ loaded' : 'Headphone EQ loaded') : 'Local draft';
   async function restoreLibrary(file: File): Promise<void> {
     await run('reading', async () => {
       if (file.size > MAX_BACKUP_SIZE) throw new Error('Choose a library backup under 2 MB.');
@@ -223,7 +298,7 @@ export function App() {
   return <div className="app-shell">
     <header className="topbar">
       <a className="wordmark" href={import.meta.env.BASE_URL} aria-label="FiiOFixer home"><span className="brand-icon"><Headphones size={21}/></span>fiiofixer<span className="brand-note">EH11 EQ</span></a>
-      <div className="header-actions"><PwaControl busy={busy} saved={draftText === savedDraft} onError={setError}/><button className="button" onClick={() => openDialog('help')}>Install & share</button></div>
+      <div className="header-actions"><PwaControl busy={busy || liveState !== 'off'} saved={draftText === savedDraft} onError={setError}/><button className="button" onClick={() => openDialog('help')}>Install & share</button></div>
     </header>
     <div className="workspace">
       <aside className="sidebar">
@@ -245,18 +320,18 @@ export function App() {
           <Graph bands={bands} selected={selected} onSelect={setSelected} onChange={edit} onCommit={checkpoint} disabled={busy}/>
           <div className="band-strip" aria-label="Select an EQ band">{bands.map((band, index) => <button className={`band-tile ${!band.enabled ? 'band-disabled' : ''} ${selected === index ? 'active' : ''}`} key={index} aria-label={`Select band ${index + 1}`} aria-pressed={selected === index} onClick={() => setSelected(index)} disabled={busy}><span className="band-index">{index + 1}</span><strong>{formatFrequency(band.frequency)}<small> Hz</small></strong><span className="band-gain">{!band.enabled ? 'Off' : <>{band.gain > 0 ? '+' : ''}{band.gain.toFixed(1)}</>}</span></button>)}</div>
           <div className="band-editor"><div className="band-editor-title"><span className="selected-band-number">{selected + 1}</span><h2>Band {selected + 1}</h2></div>
-            <label className="filter-field">Filter type<div className="select-wrap"><select aria-label="Filter type" value={current.type} disabled={busy} onChange={event => { if (isFilterType(event.target.value)) { checkpoint(); edit(selected, { type: event.target.value }); } }}>{Object.entries(FILTER_NAMES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><ChevronDown size={14}/></div></label>
+            <label className="filter-field">Filter type<div className="select-wrap"><select aria-label="Filter type" value={current.type} disabled={busy} onChange={event => { if (isFilterType(event.target.value)) { checkpoint(); edit(selected, { type: event.target.value }); } }}>{Object.entries(FILTER_NAMES).map(([value, label]) => <option key={value} value={value} disabled={liveState !== 'off' && (value === 'lowPass' || value === 'highPass')}>{label}</option>)}</select><ChevronDown size={14}/></div></label>
             <NumberControl label="Frequency" unit="Hz" value={current.frequency} min={20} max={20000} step={1} disabled={busy} onCommit={checkpoint} onChange={value => edit(selected, { frequency: value })}/>
-            <NumberControl label="Gain" unit="dB" value={current.gain} min={-40} max={40} step={0.1} disabled={busy || current.type === 'lowPass' || current.type === 'highPass'} onCommit={checkpoint} onChange={value => edit(selected, { gain: value })}/>
+            <NumberControl label="Gain" unit="dB" value={current.gain} min={-12} max={12} step={0.1} disabled={busy || current.type === 'lowPass' || current.type === 'highPass'} onCommit={checkpoint} onChange={value => edit(selected, { gain: value })}/>
             <NumberControl label="Q factor" value={current.q} min={0.01} max={100} step={0.01} disabled={busy} onCommit={checkpoint} onChange={value => edit(selected, { q: value })}/>
           </div>
-          <div className="gain-slider"><span>-40 dB</span><input aria-label="Selected band gain" type="range" min="-40" max="40" step="0.1" value={current.gain} disabled={busy || current.type === 'lowPass' || current.type === 'highPass'} onPointerDown={checkpoint} onKeyDown={event => { if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) checkpoint(); }} onChange={event => edit(selected, { gain: Number(event.target.value) })}/><span>+40 dB</span></div>
-          <div className="preset-options"><label className="filter-toggle"><button type="button" role="switch" aria-label="Selected filter enabled" aria-checked={current.enabled} className={`toggle ${current.enabled ? 'on' : ''}`} disabled={busy} onClick={() => { checkpoint(); edit(selected, { enabled: !current.enabled }); }}><i/></button>Filter {current.enabled ? 'on' : 'off'}</label><NumberControl label="Preset preamp" unit="dB" value={preampDb} min={-100} max={40} step={0.1} disabled={busy} onCommit={checkpoint} onChange={value => { setPreampDb(value); draftTouched.current = true; setDemoVerified(false); }}/><p>Stored with preset; not sent to headphones.</p></div>
-          <div className="eq-actions"><p className="draft-note">{isDemo ? (demoVerified && !changed ? 'Demo readback matches.' : 'Apply to test readback.') : connection.kind === 'connected' && connection.transport.kind === 'linux' ? 'Backs up EQ and checks readback.' : 'Connect with the Linux helper to apply EQ.'}</p><button className="button primary apply-button" onClick={() => void apply()} disabled={busy || connection.kind !== 'connected' || connection.transport.kind === 'browser' || !changed}>{activity === 'applying' ? <LoaderCircle className="spin" size={17}/> : <Check size={17}/>} {activity === 'applying' ? 'Verifying…' : isDemo ? 'Apply in demo' : 'Apply to headphones'}</button></div>
+          <div className="gain-slider"><span>-12 dB</span><input aria-label="Selected band gain" type="range" min="-12" max="12" step="0.1" value={Math.max(-12, Math.min(12, current.gain))} disabled={busy || current.type === 'lowPass' || current.type === 'highPass'} onPointerDown={checkpoint} onKeyDown={event => { if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) checkpoint(); }} onChange={event => edit(selected, { gain: Number(event.target.value) })}/><span>+12 dB</span></div>
+          <div className="preset-options"><label className="filter-toggle"><button type="button" role="switch" aria-label="Selected filter enabled" aria-checked={current.enabled} className={`toggle ${current.enabled ? 'on' : ''}`} disabled={busy || liveState !== 'off'} onClick={() => { checkpoint(); edit(selected, { enabled: !current.enabled }); }}><i/></button>Filter {current.enabled ? 'on' : 'off'}</label><NumberControl label="Preset preamp" unit="dB" value={preampDb} min={-100} max={40} step={0.1} disabled={busy || liveState !== 'off'} onCommit={checkpoint} onChange={value => { setPreampDb(value); draftTouched.current = true; setDemoVerified(false); }}/><p>Stored with preset; not sent to headphones.</p></div>
+          <div className="eq-actions"><label className="live-control"><button type="button" role="switch" aria-label="Live EQ" aria-checked={liveState === 'on'} className={`toggle ${liveState === 'on' ? 'on' : ''}`} disabled={busy || liveState === 'stopping' || connection.kind !== 'connected' || connection.transport.kind !== 'linux'} onClick={() => void toggleLive()}><i/></button>Live EQ</label><p className="draft-note">{bands.some(band => Math.abs(band.gain) > 12) ? 'Imported gain exceeds the ±12 dB hardware range.' : liveState === 'on' ? (livePending ? 'Updating…' : 'Edits are live.') : isDemo ? (demoVerified && !changed ? 'Demo readback matches.' : 'Apply to test readback.') : connection.kind === 'connected' && connection.transport.kind === 'linux' ? 'Backs up EQ and checks readback.' : 'Connect with the Linux helper to apply EQ.'}</p><button className="button primary apply-button" onClick={() => void apply()} disabled={busy || liveState !== 'off' || connection.kind !== 'connected' || connection.transport.kind === 'browser' || !changed}>{activity === 'applying' ? <LoaderCircle className="spin" size={17}/> : <Check size={17}/>} {activity === 'applying' ? 'Verifying…' : isDemo ? 'Apply in demo' : 'Apply to headphones'}</button></div>
         </section>
-        <section className="utility-row" aria-label="EQ actions"><button className="button" disabled={busy || connection.kind === 'offline'} onClick={() => { const active = session.current; if (active) void run('reading', () => readDevice(active)); }}><ArrowDownToLine size={16}/>Read EQ</button><button className="button" disabled={busy || !snapshot || !changed} onClick={() => { if (snapshot) replaceDraft(snapshot.bands, isDemo ? 'Demo EQ' : 'Headphone EQ', snapshot.preampDb ?? 0); }}>Use read EQ</button><button className="button" disabled={busy || !hardwareBackup} onClick={() => { if (hardwareBackup) { replaceDraft(parseEq(hardwareBackup, qScale), 'Previous headphone EQ'); setNotice('Previous EQ loaded. Apply to restore.'); } }}>Previous EQ</button><span className="utility-spacer"/><button className="button" disabled={busy} onClick={saveDialog}><Plus size={16}/>Save preset</button><button className="button" onClick={() => openDialog('export')}><ArrowUpFromLine size={16}/>Export EQ</button></section>
+        <section className="utility-row" aria-label="EQ actions"><button className="button" disabled={busy || liveState !== 'off' || connection.kind === 'offline'} onClick={() => { const active = session.current; if (active) void run('reading', () => readDevice(active)); }}><ArrowDownToLine size={16}/>Read EQ</button><button className="button" disabled={busy || !snapshot || !changed} onClick={() => { if (snapshot) replaceDraft(snapshot.bands, isDemo ? 'Demo EQ' : 'Headphone EQ', snapshot.preampDb ?? 0); }}>Use read EQ</button><button className="button" disabled={busy || !hardwareBackup} onClick={() => { if (hardwareBackup) { replaceDraft(parseEq(hardwareBackup, qScale), 'Previous headphone EQ'); setNotice('Previous EQ loaded. Apply to restore.'); } }}>Previous EQ</button><span className="utility-spacer"/><button className="button" disabled={busy} onClick={saveDialog}><Plus size={16}/>Save preset</button><button className="button" onClick={() => openDialog('export')}><ArrowUpFromLine size={16}/>Export EQ</button></section>
         {(busy || error || notice) && <div className={`notice ${error ? 'error' : ''}`} role={error ? 'alert' : 'status'}>{busy && <LoaderCircle className="spin" size={16}/>}<span>{busy ? ({ connecting: 'Connecting…', scanning: 'Scanning…', reading: 'Reading EQ…', applying: 'Verifying…', idle: notice }[activity]) : error ?? notice}</span>{removedPreset && !busy && <button className="text-button" onClick={undoRemove}>Undo delete</button>}</div>}
-        <details className="diagnostics"><summary>Diagnostics<ChevronDown size={15}/></summary><div className="diagnostics-body"><p>Q uses the selected interpretation. Linux writes verify raw bytes; Q scaling and power-cycle persistence still need checking.</p><div className="diagnostic-tools"><label>Q interpretation<select aria-label="Q interpretation" value={qScale} disabled={busy || isDemo} onChange={event => changeQScale(event.target.value === '10' ? 10 : 100)}><option value="100">raw ÷ 100, current reference</option><option value="10">raw ÷ 10, older notes</option></select></label><button className="button" onClick={() => download('fiiofixer-diagnostics.json', JSON.stringify({ app: 'fiiofixer', version: '0.3.0', generatedAt: new Date().toISOString(), hardwareWritesEnabled: connection.kind === 'connected' && connection.transport.kind === 'linux', mode: connection.kind === 'connected' ? connection.transport.kind : 'offline', qDivisor: qScale, snapshot: snapshot ? { at: snapshot.at, bands: snapshot.bands, raw: snapshot.raw ? Array.from(snapshot.raw) : null } : null, logs }, null, 2))}><ArrowDownToLine size={15}/>Download log</button></div><pre className="log-output" aria-label="Connection log">{logs.length ? logs.map(entry => `${entry.time.slice(11, 23)} ${entry.direction.padEnd(8)} ${entry.message}`).join('\n') : 'No Bluetooth traffic.'}</pre></div></details>
+        <details className="diagnostics"><summary>Diagnostics<ChevronDown size={15}/></summary><div className="diagnostics-body"><p>Q uses the selected interpretation. Linux writes verify raw bytes; Q scaling and power-cycle persistence still need checking.</p><div className="diagnostic-tools"><label>Q interpretation<select aria-label="Q interpretation" value={qScale} disabled={busy || isDemo || liveState !== 'off'} onChange={event => changeQScale(event.target.value === '10' ? 10 : 100)}><option value="100">raw ÷ 100, current reference</option><option value="10">raw ÷ 10, older notes</option></select></label><button className="button" onClick={() => download('fiiofixer-diagnostics.json', JSON.stringify({ app: 'fiiofixer', version: '0.4.0', generatedAt: new Date().toISOString(), hardwareWritesEnabled: connection.kind === 'connected' && connection.transport.kind === 'linux', mode: connection.kind === 'connected' ? connection.transport.kind : 'offline', qDivisor: qScale, snapshot: snapshot ? { at: snapshot.at, bands: snapshot.bands, raw: snapshot.raw ? Array.from(snapshot.raw) : null } : null, logs }, null, 2))}><ArrowDownToLine size={15}/>Download log</button></div><pre className="log-output" aria-label="Connection log">{logs.length ? logs.map(entry => `${entry.time.slice(11, 23)} ${entry.direction.padEnd(8)} ${entry.message}`).join('\n') : 'No Bluetooth traffic.'}</pre></div></details>
       </main>
     </div>
     <dialog aria-labelledby="dialog-title" ref={modalRef} className="modal" onCancel={() => setDialog(null)} onClick={event => { if (event.target === event.currentTarget) { const box = event.currentTarget.getBoundingClientRect(); if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) setDialog(null); } }}>
@@ -277,7 +352,7 @@ export function App() {
         void file.text().then(text => { setImportText(text); setImportName(file.name.replace(/\.(txt|json)$/i, '').slice(0, 60)); setError(null); }).catch(() => setError('Could not read the file.'));
       }}/></label><label className="modal-label">Preset text<textarea autoFocus aria-label="Preset text" rows={8} maxLength={100000} required value={importText} onChange={event => setImportText(event.target.value)} placeholder={'Preamp: -3 dB\nFilter 1: ON PK Fc 100 Hz Gain -2 dB Q 0.71'}/></label>{error && <p className="modal-error" role="alert">{error}</p>}<button className="button primary modal-main" type="submit">Import EQ</button></form>}
       {dialog === 'library' && <><h2 id="dialog-title">Library backup</h2><p>Move saved presets to another browser or computer.</p><button className="button primary modal-main" onClick={() => download('fiiofixer-library.json', exportLibrary(presets))}><ArrowDownToLine size={16}/>Back up {presets.length} {presets.length === 1 ? 'preset' : 'presets'}</button><label className="file-import-label">Restore backup<input type="file" aria-label="Restore library backup" accept=".json,application/json" disabled={busy} onChange={event => { const file = event.target.files?.[0]; if (file) void restoreLibrary(file); event.target.value = ''; }}/></label><p>Restoring adds presets. Existing presets stay.</p>{error && <p className="modal-error" role="alert">{error}</p>}</>}
-      {dialog === 'help' && <><h2 id="dialog-title">FiiOFixer</h2><h3>Install</h3><p>Use your browser menu's Install app or Add to home screen. The editor works offline after the first visit.</p><p><a className="button" href={`${REPO_URL}/releases/latest`} target="_blank" rel="noreferrer"><Download size={16}/>Linux desktop package</a></p><p>Linux Bluetooth needs the desktop package. Android Chrome connects directly from the shared link.</p><h3>Move presets</h3><p>Save your EQ, then use Library backup to transfer your saved presets. Drafts save automatically in this browser.</p><h3>Share</h3><p><a href={WEB_URL} target="_blank" rel="noreferrer">massiveadam.github.io/fiiofixer</a></p><button className="button" onClick={() => { void navigator.clipboard.writeText(WEB_URL).then(() => { setNotice('App link copied.'); setDialog(null); }).catch(() => setError('Clipboard unavailable. Copy the link above.')); }}><Copy size={15}/>Copy app link</button><h3>Current limits</h3><p>Linux can apply peaking and shelf filters within ±12 dB. Preamp, filter bypass and pass filters are not supported on hardware. Android supports reads only. Q scaling and power-cycle persistence need checking.</p><p><a href={REPO_URL} target="_blank" rel="noreferrer">Source & setup</a> · <a href={`${import.meta.env.BASE_URL}third-party-notices.txt`} target="_blank" rel="noreferrer">Licenses</a> · v0.3.0 · Independent project, not affiliated with FiiO.</p>{error && <p className="modal-error" role="alert">{error}</p>}</>}
+      {dialog === 'help' && <><h2 id="dialog-title">FiiOFixer</h2><h3>Install</h3><p>Use your browser menu's Install app or Add to home screen. The editor works offline after the first visit.</p><p><a className="button" href={`${REPO_URL}/releases/latest`} target="_blank" rel="noreferrer"><Download size={16}/>Linux desktop package</a></p><p>Linux Bluetooth needs the desktop package. Android Chrome connects directly from the shared link.</p><h3>Move presets</h3><p>Save your EQ, then use Library backup to transfer your saved presets. Drafts save automatically in this browser.</p><h3>Share</h3><p><a href={WEB_URL} target="_blank" rel="noreferrer">massiveadam.github.io/fiiofixer</a></p><button className="button" onClick={() => { void navigator.clipboard.writeText(WEB_URL).then(() => { setNotice('App link copied.'); setDialog(null); }).catch(() => setError('Clipboard unavailable. Copy the link above.')); }}><Copy size={15}/>Copy app link</button><h3>Current limits</h3><p>Linux supports Live EQ and manual apply within ±12 dB using peaking and shelf filters. Preamp, filter bypass and pass filters are not supported on hardware. Android supports reads only. Q scaling and power-cycle persistence need checking.</p><p><a href={REPO_URL} target="_blank" rel="noreferrer">Source & setup</a> · <a href={`${import.meta.env.BASE_URL}third-party-notices.txt`} target="_blank" rel="noreferrer">Licenses</a> · v0.4.0 · Independent project, not affiliated with FiiO.</p>{error && <p className="modal-error" role="alert">{error}</p>}</>}
     </dialog>
   </div>;
 }

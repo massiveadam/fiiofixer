@@ -55,3 +55,7 @@ The reader cannot establish individual filter enable state or global preamp. Rea
 ## Squig.link source check
 
 The live [Squig.link](https://squig.link/) [graphtool.js](https://squig.link/graphtool.js) exporter was inspected on 2026-10-22. Its `appendExportFilterLines` emits `Preamp: … dB`, `Filter N: ON/OFF TYPE Fc … Hz Gain … dB Q …` and maps internal `LSQ`/`HSQ` to `LSC`/`HSC`. It preserves gain to four decimals and Q to six. The importer accepts those fields without changing their precision or discarding disabled filters. Stereo channel exports are explicitly rejected because their mapping to EH11 hardware is unknown.
+
+## Live session protocol
+
+Live EQ uses the same verified per-band write command, not a guessed preview command. `/api/live/start` requires a complete matching fresh baseline and saves one durable backup. The returned live ID is required on every live apply and cannot be reused after stop, connection loss or a failed transaction. `/api/live/stop` keeps the last verified EQ. It does not send an unverified save-to-flash command. Flash behavior during repeated updates remains unmeasured.

@@ -20,7 +20,7 @@ Use the production build at http://localhost:8787 or the hosted app.
 
 ## Linux package
 
-Run `npm run package:linux`. Extract the archive into a fresh directory, then install using `bash scripts/install-linux.sh --prefix '/tmp/fiiofixer-check/install prefix' --no-service`. Run the installed `bin/fiiofixer --no-browser` and check that `/api/status` identifies `fiiofixer`, version `0.3.0`, and `hardwareWritesEnabled: true`. Never store the response token in evidence.
+Run `npm run package:linux`. Extract the archive into a fresh directory, then install using `bash scripts/install-linux.sh --prefix '/tmp/fiiofixer-check/install prefix' --no-service`. Run the installed `bin/fiiofixer --no-browser` and check that `/api/status` identifies `fiiofixer`, version `0.4.0`, and `hardwareWritesEnabled: true`. Never store the response token in evidence.
 
 Repeat installation to check that updates are safe. Test a regular per-user install with systemd and check that the service is enabled and active. Stop only helper processes created by your verification. The app must still start when the extracted release directory is no longer present.
 
@@ -43,3 +43,13 @@ On 2026-10-22 the patched installed helper found a paired non-advertising EH11, 
 Automated failure tests cover stale baselines, backup failures, missing ACKs after an accepted write, readback mismatches, stopping later writes, verified restoration and a disconnect that prevents restoration. UI tests cover target precision and rejection of unsupported hardware settings. These tests supplement the physical experiments; they do not establish Q semantics, acoustic response, Android writes or power-cycle persistence.
 
 The installed v0.3 UI then performed Connect → Read EQ → band-10 -1 dB → Apply. The returned full EQ differed only in the intended gain bytes. Previous EQ → Apply restored all 80 original bytes. The helper retained its connection throughout both transactions. The production build and 33 TypeScript plus 24 Python tests passed.
+
+## v0.4 checks
+
+Verify connection with a pre-existing local draft: the editor must load the headphone EQ, and Undo must recover the prior values. Verify ±12 dB numeric/slider/graph limits while preserving an imported out-of-range preset unchanged until edited.
+
+Start Live EQ, move a gain repeatedly, and compare final device readback against the latest draft. The editor must remain usable during an in-flight reply. Check that one original backup survives all live changes. Stop with edits pending; no queued write may start afterwards. Restore with Previous EQ and verify the full original EQ. A failed ACK/readback must stop the session and require a new explicit start. Reconnect/reload must leave Live EQ off.
+
+On 2026-10-22, the installed Linux UI loaded actual EQ over an existing saved draft; Undo recovered that draft with zero hardware writes. Live mode accepted repeated temporary gain edits while the editor stayed enabled. Twenty rapid intermediate edits were coalesced, at most one apply request was in flight, and the last checked readback matched the final -2 dB target. Complete readback changed only the intended gain bytes. The starting browser backup stayed identical and the helper created exactly one backup for the live session. Previous EQ restored all original bytes. Turning live off immediately after another edit canceled that unsent target; a fresh final EQ read still matched the full starting EQ. The test connection was released. The original EQ here means the current device state at this session’s start, including any user changes made since earlier experiments.
+
+The release passed 40 TypeScript and 27 Python tests plus the production build. Q semantics, acoustic response and flash/power-cycle behavior remain outside this verification.

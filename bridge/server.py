@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 import uvicorn
 from bluez_control import get_paired_eh11_devices, prepare_eh11
-from eq_control import apply_eq, validate_eq, StaleEqError, ApplyError
+from eq_control import apply_eq, validate_eq, save_backup, READ_EQ, StaleEqError, ApplyError
 
 logger = logging.getLogger('uvicorn.error')
 
@@ -76,6 +76,7 @@ class Reader:
     def __init__(self):
         self.client: BleakClient | None = None
         self.connection_id: str | None = None
+        self.live_id: str | None = None
         self.devices = {}
         self.lock = asyncio.Lock()
         self.queue: asyncio.Queue[bytes | Exception] = asyncio.Queue(maxsize=100)
@@ -94,6 +95,7 @@ class Reader:
         if self.client is client:
             logger.info('EH11 control connection disconnected.')
             self.connection_id = None
+            self.live_id = None
             try:
                 self.queue.put_nowait(ConnectionError("EH11 disconnected. Reconnect to continue."))
             except asyncio.QueueFull:
@@ -102,6 +104,7 @@ class Reader:
     async def close(self):
         client, self.client = self.client, None
         self.connection_id = None
+        self.live_id = None
         if client and client.is_connected:
             await client.disconnect()
         self.queue = asyncio.Queue(maxsize=100)
@@ -175,7 +178,7 @@ async def local_only(request: Request, call_next):
 
 @app.get("/api/status")
 async def status():
-    return {"app": "fiiofixer", "version": "0.3.0", "token": TOKEN, "hardwareWritesEnabled": True,
+    return {"app": "fiiofixer", "version": "0.4.0", "token": TOKEN, "hardwareWritesEnabled": True, "liveEqEnabled": True,
             "connectionId": reader.connection_id if reader.client and reader.client.is_connected else None}
 
 
@@ -215,6 +218,15 @@ class ExchangeBody(SessionBody):
 class ApplyBody(SessionBody):
     baseline: list[StrictInt] = Field(min_length=80, max_length=80)
     target: list[StrictInt] = Field(min_length=80, max_length=80)
+    liveId: StrictStr | None = Field(default=None, max_length=100)
+
+
+class LiveStartBody(SessionBody):
+    baseline: list[StrictInt] = Field(min_length=80, max_length=80)
+
+
+class LiveStopBody(SessionBody):
+    liveId: StrictStr = Field(max_length=100)
 
 
 @app.post("/api/connect")
@@ -286,19 +298,64 @@ async def apply(body: ApplyBody):
         raise HTTPException(400, str(error)) from error
     async with reader.lock:
         reader.require(body.connectionId)
+        if reader.live_id != body.liveId:
+            raise HTTPException(409, 'Live EQ session changed. Turn Live EQ off and read EQ before continuing.')
         try:
-            result = await apply_eq(reader.transact, baseline, target)
+            if body.liveId is None:
+                result = await apply_eq(reader.transact, baseline, target)
+            else:
+                # Start already saved the original EQ. Keep one backup for the whole live session.
+                result = await apply_eq(reader.transact, baseline, target, backup=lambda _: None)
             logger.info('EH11 EQ applied; full readback verified.')
             return {'bytes': list(result)}
         except StaleEqError as error:
+            reader.live_id = None
             raise HTTPException(409, str(error)) from error
         except (ApplyError, OSError) as error:
+            reader.live_id = None
             logger.warning('EH11 apply failed: %s', error)
             raise HTTPException(503, str(error)) from error
         except Exception as error:
+            reader.live_id = None
             # Failures before apply_eq starts writing cannot require rollback.
             logger.warning('EH11 pre-apply read failed: %s', error)
             raise HTTPException(503, 'Could not read a valid EQ baseline. No EQ writes were sent. Reconnect and try again.') from error
+
+
+@app.post('/api/live/start')
+async def live_start(body: LiveStartBody):
+    try:
+        baseline = bytes(body.baseline)
+        validate_eq(baseline, writable=True)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    async with reader.lock:
+        reader.require(body.connectionId)
+        if reader.live_id is not None:
+            raise HTTPException(409, 'Live EQ is already active in another tab.')
+        try:
+            before = await reader.transact(READ_EQ)
+            validate_eq(before)
+            if before != baseline:
+                raise HTTPException(409, 'Headphone EQ changed. Read EQ again before starting Live EQ.')
+            save_backup(before)
+            reader.live_id = secrets.token_urlsafe(16)
+            logger.info('EH11 live EQ started; original EQ backed up.')
+            return {'liveId': reader.live_id}
+        except HTTPException:
+            raise
+        except Exception as error:
+            raise HTTPException(503, 'Could not read and back up the original EQ. Live EQ was not started.') from error
+
+
+@app.post('/api/live/stop')
+async def live_stop(body: LiveStopBody):
+    async with reader.lock:
+        reader.require(body.connectionId)
+        if reader.live_id is not None and reader.live_id != body.liveId:
+            raise HTTPException(409, 'That Live EQ session has ended.')
+        reader.live_id = None
+        return {'stopped': True}
 
 
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])

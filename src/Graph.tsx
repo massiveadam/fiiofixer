@@ -3,9 +3,9 @@ import type { PointerEvent } from 'react';
 import { formatFrequency, responseAt } from './eq';
 import type { Band } from './eq';
 
-export function Graph({ bands, selected, onSelect, onChange, onCommit, disabled }: {
+export function Graph({ bands, selected, onSelect, onChange, onCommit, disabled, gainLimit = 12 }: {
   bands: Band[]; selected: number; onSelect: (index: number) => void;
-  onChange: (index: number, patch: Partial<Band>) => void; onCommit: () => void; disabled: boolean;
+  onChange: (index: number, patch: Partial<Band>) => void; onCommit: () => void; disabled: boolean; gainLimit?: number;
 }) {
   const gradient = useId();
   const container = useRef<HTMLDivElement>(null);
@@ -45,7 +45,7 @@ export function Graph({ bands, selected, onSelect, onChange, onCommit, disabled 
     const p = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix);
     onChange(drag.current, {
       frequency: Math.round(20 * Math.pow(1000, Math.max(0, Math.min(1, (p.x - LEFT) / PW)))),
-      gain: Math.round(Math.max(-40, Math.min(40, range - (p.y - TOP) / PH * range * 2)) * 10) / 10,
+      gain: Math.round(Math.max(-gainLimit, Math.min(gainLimit, range - (p.y - TOP) / PH * range * 2)) * 10) / 10,
     });
   }
   const end = (): void => { drag.current = null; };
@@ -59,12 +59,12 @@ export function Graph({ bands, selected, onSelect, onChange, onCommit, disabled 
       <path d={selectedCurve} fill="none" stroke="#dd773d" strokeWidth="1.5" strokeDasharray="4 5" opacity="0.65"/>
       <path d={points} fill="none" stroke="#3159de" strokeWidth="2.8" strokeLinejoin="round"/>
       {bands.map((band, index) => <g key={index} className={`graph-handle ${!band.enabled ? 'band-off' : ''} ${selected === index ? 'selected' : ''}`} role="slider" tabIndex={disabled ? -1 : 0}
-        aria-label={`Band ${index + 1}, ${band.frequency} Hz`} aria-valuemin={-40} aria-valuemax={40} aria-valuenow={band.gain} aria-valuetext={`${band.gain} decibels at ${band.frequency} hertz${band.enabled ? '' : ', filter off'}`}
+        aria-label={`Band ${index + 1}, ${band.frequency} Hz`} aria-valuemin={Math.min(-gainLimit, band.gain)} aria-valuemax={Math.max(gainLimit, band.gain)} aria-valuenow={band.gain} aria-valuetext={`${band.gain} decibels at ${band.frequency} hertz${band.enabled ? '' : ', filter off'}`}
         onFocus={() => onSelect(index)}
         onKeyDown={event => {
           if (disabled || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return;
           event.preventDefault(); onCommit(); onSelect(index);
-          if (event.key === 'ArrowUp' || event.key === 'ArrowDown') onChange(index, { gain: Math.round(Math.max(-40, Math.min(40, band.gain + (event.key === 'ArrowUp' ? 0.1 : -0.1))) * 10) / 10 });
+          if (event.key === 'ArrowUp' || event.key === 'ArrowDown') onChange(index, { gain: Math.round(Math.max(-gainLimit, Math.min(gainLimit, band.gain + (event.key === 'ArrowUp' ? 0.1 : -0.1))) * 10) / 10 });
           else onChange(index, { frequency: Math.round(Math.max(20, Math.min(20000, band.frequency * (event.key === 'ArrowRight' ? 1.03 : 1 / 1.03)))) });
         }}
         onPointerDown={event => {
