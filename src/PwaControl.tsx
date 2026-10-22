@@ -10,6 +10,24 @@ function isInstallPrompt(event: Event): event is InstallPrompt {
 export function PwaControl({ busy, saved, onError }: { busy: boolean; saved: boolean; onError: (message: string) => void }) {
   const [install, setInstall] = useState<InstallPrompt | null>(null);
   const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW({
+    onRegisteredSW(_swUrl, registration) {
+      if (!registration) return;
+      registration.update().catch(() => {});
+      const interval = setInterval(() => {
+        registration.update().catch(() => {});
+      }, 60 * 1000);
+      const onFocus = () => {
+        registration.update().catch(() => {});
+      };
+      window.addEventListener('focus', onFocus);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') onFocus();
+      });
+      return () => {
+        clearInterval(interval);
+        window.removeEventListener('focus', onFocus);
+      };
+    },
     onRegisterError: () => onError('Offline setup failed. Reopen the app while online to retry.'),
   });
   useEffect(() => {
