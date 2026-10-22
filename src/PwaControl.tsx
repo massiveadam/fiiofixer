@@ -10,14 +10,17 @@ function isInstallPrompt(event: Event): event is InstallPrompt {
 
 const UPDATE_POLL_MS = 60 * 1000;
 
+// Drop only this app's own registration and precache. GitHub Pages shares one
+// origin across projects, so clearing everything would break other apps.
 async function reloadPastServiceWorker(): Promise<void> {
+  const scope = new URL(import.meta.env.BASE_URL, location.origin).href;
   if ('serviceWorker' in navigator) {
     const registrations = await navigator.serviceWorker.getRegistrations();
-    await Promise.all(registrations.map(registration => registration.unregister()));
+    await Promise.all(registrations.filter(registration => registration.scope === scope).map(registration => registration.unregister()));
   }
   if ('caches' in window) {
     const keys = await caches.keys();
-    await Promise.all(keys.map(key => caches.delete(key)));
+    await Promise.all(keys.filter(key => key.includes(scope)).map(key => caches.delete(key)));
   }
   location.reload();
 }
