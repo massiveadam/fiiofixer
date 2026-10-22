@@ -82,6 +82,19 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(result.status_code, 503)
             self.assertIn('No EQ writes were sent', result.json()['detail'])
 
+    def test_global_eq_switch_requires_a_boolean_and_verifies_state(self):
+        from test_enabled import EqSwitch
+        from server import reader
+        self.assertEqual(self.client.post('/api/eq-enabled',json={'connectionId':'x','enabled':1},headers=self.headers).status_code,422)
+        self.assertEqual(self.client.post('/api/eq-enabled',json={'connectionId':'x','enabled':True},headers=self.headers).status_code,409)
+        device=EqSwitch()
+        with patch.object(reader,'require'),patch.object(reader,'live_id',None),patch.object(reader,'transact',new=AsyncMock(side_effect=device.exchange)):
+            for enabled in [True,False]:
+                result=self.client.post('/api/eq-enabled',json={'connectionId':'x','enabled':enabled},headers=self.headers)
+                self.assertEqual(result.status_code,200)
+                self.assertEqual(result.json(),{'enabled':enabled})
+                self.assertEqual(device.enabled,enabled)
+
 
 class FramingTests(unittest.TestCase):
     def test_fragmentation_and_embedded_ff(self):
@@ -92,6 +105,29 @@ class FramingTests(unittest.TestCase):
 
 
 class ReadTests(unittest.IsolatedAsyncioTestCase):
+    async def test_hung_disconnect_cannot_block_the_helper_indefinitely(self):
+        reader=Reader()
+        class HungClient:
+            is_connected=True
+            async def disconnect(self):await asyncio.Event().wait()
+        reader.client=HungClient();reader.connection_id='owned';reader.live_id='live'
+        with patch('server.DISCONNECT_TIMEOUT',0.01):
+            await asyncio.wait_for(reader.close(),0.2)
+        self.assertIsNone(reader.client)
+        self.assertIsNone(reader.connection_id)
+        self.assertIsNone(reader.live_id)
+
+    async def test_insufficient_mtu_rejects_the_curve_before_gatt_write(self):
+        from test_eq_control import baseline
+        from eq_control import curve_write
+        reader=Reader()
+        tx=SimpleNamespace(properties=['write-without-response'],max_write_without_response_size=20)
+        client=SimpleNamespace(services=SimpleNamespace(get_characteristic=lambda _:tx),write_gatt_char=AsyncMock())
+        reader.client=client
+        with self.assertRaisesRegex(ValueError,'packet size'):
+            await reader.transact(curve_write(baseline()))
+        client.write_gatt_char.assert_not_awaited()
+
     async def test_scan_includes_paired_headphones_that_are_not_advertising(self):
         from server import scan, reader
         device = SimpleNamespace(address='test-eh11', name='FIIO EH11')

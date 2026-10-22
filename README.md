@@ -2,7 +2,7 @@
 
 EQ editor for FiiO EH11 headphones. Import Squig.link filters, edit ten bands, and move presets between computers without an account.
 
-Linux supports checked EQ writes with automatic backups and exact readback. Gain, frequency, raw Q and shelf records were tested on a real EH11 and restored afterwards. Q scaling against FiiO Control and persistence after power off still need verification. Android Bluetooth remains read-only.
+Linux supports EQ writes with automatic backups, exact readback and verified headphone EQ activation. Gain, frequency, raw Q and shelf records were tested on a real EH11 and restored afterwards. Q scaling against FiiO Control and persistence after power off still need verification. Android Bluetooth remains read-only.
 
 [Open the app](https://massiveadam.github.io/fiiofixer/) · [Download for Linux](https://github.com/massiveadam/fiiofixer/releases/latest)
 
@@ -52,14 +52,14 @@ Import its parametric `Filters.txt` using **Import EQ**. Export offers compatibl
 
 ## Applying EQ on Linux
 
-Connecting automatically reads the current headphone EQ into the editor. Undo recovers the draft that was open before connection. Edit and choose **Apply to headphones**. The helper checks that the headphone EQ still matches the read baseline, saves a private backup, and verifies every changed band by reading the full EQ. A failed check stops apply and attempts restoration. The app reports whether restoration was verified.
+Connecting automatically reads the current headphone EQ into the editor. Undo recovers the draft that was open before connection. Edit and choose **Apply to headphones**. The helper checks the read baseline, saves a private backup, sends the whole curve in one command, verifies the complete readback, and enables headphone EQ. The **Headphone EQ** switch shows the device’s actual on/off state and can bypass the EQ for comparison. A failed check stops apply and attempts restoration. The app reports whether restoration was verified.
 
 **Previous EQ** loads the backup as a draft. Choose **Apply to headphones** to restore it. Raw helper backups are also retained under `~/.local/share/fiiofixer/backups`. Open a `.bin` file with **Import EQ**, then Apply to restore it. With Live EQ off, changes are sent only when you press Apply.
 
 
-Turn on **Live EQ** to hear edits while adjusting the graph or numeric controls. It starts off on every connection. Edits are coalesced at 150 ms with one checked write in flight; newer edits replace pending slider positions. The controls remain editable while readback is pending. A failed check stops live mode without retrying automatically.
+Turn on **Live EQ** to hear edits while adjusting the graph or numeric controls. It starts off on every connection. Edits are coalesced at 150 ms with one complete-curve update in flight; newer edits replace pending slider positions. The controls remain editable while readback is pending. A failed check stops live mode without retrying automatically.
 
-Turning Live EQ off cancels unsent edits, waits for the current write, and keeps the last heard EQ. **Previous EQ** retains the EQ from when live mode started. Loading it while live mode is on restores it after the next checked update. The helper saves one backup per live session rather than one per slider movement.
+Turning Live EQ off cancels unsent edits, waits for the current write, and keeps the last heard EQ. **Previous EQ** retains the EQ from when live mode started. Loading it while live mode is on restores it after the next checked update. Live EQ enables headphone EQ after its starting backup is saved. The helper saves one backup per live session rather than one per slider movement. Curve changes use a single device command, keeping audio continuous and avoiding band-by-band transitions.
 
 ## Development
 

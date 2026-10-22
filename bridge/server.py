@@ -14,10 +14,10 @@ from bleak import BleakClient, BleakScanner
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
 import uvicorn
 from bluez_control import get_paired_eh11_devices, prepare_eh11
-from eq_control import apply_eq, validate_eq, save_backup, READ_EQ, StaleEqError, ApplyError
+from eq_control import apply_eq, validate_eq, save_backup, READ_EQ, read_enabled, set_enabled, StaleEqError, ApplyError
 
 logger = logging.getLogger('uvicorn.error')
 
@@ -26,6 +26,7 @@ TX = "00001101-04a5-1000-1000-40ed981a04a5"
 RX = "00001102-04a5-1000-1000-40ed981a04a5"
 TOKEN = secrets.token_urlsafe(32)
 ROOT = Path(__file__).resolve().parents[1]
+DISCONNECT_TIMEOUT = 4
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", "::1"}
 # Exact query payloads, not merely a high-nibble convention. No guessed writes.
 READ_QUERIES = {
@@ -106,7 +107,10 @@ class Reader:
         self.connection_id = None
         self.live_id = None
         if client and client.is_connected:
-            await client.disconnect()
+            try:
+                await asyncio.wait_for(client.disconnect(), DISCONNECT_TIMEOUT)
+            except Exception as error:
+                logger.warning('EH11 disconnect cleanup did not complete: %s', error)
         self.queue = asyncio.Queue(maxsize=100)
         self.frames = Frames()
 
@@ -130,6 +134,8 @@ class Reader:
         tx = client.services.get_characteristic(TX)
         if not tx:
             raise ValueError("EH11 write characteristic is missing.")
+        if 'write-without-response' in tx.properties and len(data) > getattr(tx, 'max_write_without_response_size', 20):
+            raise ValueError('EH11 Bluetooth packet size is too small for a whole EQ curve. Reconnect and try again.')
         await client.write_gatt_char(tx, data, response="write-without-response" not in tx.properties)
         deadline = time.monotonic() + 6
         while True:
@@ -178,7 +184,7 @@ async def local_only(request: Request, call_next):
 
 @app.get("/api/status")
 async def status():
-    return {"app": "fiiofixer", "version": "0.4.0", "token": TOKEN, "hardwareWritesEnabled": True, "liveEqEnabled": True,
+    return {"app": "fiiofixer", "version": "0.5.0", "token": TOKEN, "hardwareWritesEnabled": True, "liveEqEnabled": True, "eqSwitchEnabled": True,
             "connectionId": reader.connection_id if reader.client and reader.client.is_connected else None}
 
 
@@ -227,6 +233,10 @@ class LiveStartBody(SessionBody):
 
 class LiveStopBody(SessionBody):
     liveId: StrictStr = Field(max_length=100)
+
+
+class EnabledBody(SessionBody):
+    enabled: StrictBool
 
 
 @app.post("/api/connect")
@@ -307,7 +317,7 @@ async def apply(body: ApplyBody):
                 # Start already saved the original EQ. Keep one backup for the whole live session.
                 result = await apply_eq(reader.transact, baseline, target, backup=lambda _: None)
             logger.info('EH11 EQ applied; full readback verified.')
-            return {'bytes': list(result)}
+            return {'bytes': list(result), 'enabled': True}
         except StaleEqError as error:
             reader.live_id = None
             raise HTTPException(409, str(error)) from error
@@ -339,13 +349,14 @@ async def live_start(body: LiveStartBody):
             if before != baseline:
                 raise HTTPException(409, 'Headphone EQ changed. Read EQ again before starting Live EQ.')
             save_backup(before)
+            await set_enabled(reader.transact, True)
             reader.live_id = secrets.token_urlsafe(16)
             logger.info('EH11 live EQ started; original EQ backed up.')
-            return {'liveId': reader.live_id}
+            return {'liveId': reader.live_id, 'enabled': True}
         except HTTPException:
             raise
         except Exception as error:
-            raise HTTPException(503, 'Could not read and back up the original EQ. Live EQ was not started.') from error
+            raise HTTPException(503, f'Live EQ could not start. {error}') from error
 
 
 @app.post('/api/live/stop')
@@ -356,6 +367,21 @@ async def live_stop(body: LiveStopBody):
             raise HTTPException(409, 'That Live EQ session has ended.')
         reader.live_id = None
         return {'stopped': True}
+
+
+@app.post('/api/eq-enabled')
+async def eq_enabled(body: EnabledBody):
+    async with reader.lock:
+        reader.require(body.connectionId)
+        if reader.live_id is not None:
+            raise HTTPException(409, 'Turn Live EQ off before changing the headphone EQ switch.')
+        try:
+            result = await set_enabled(reader.transact, body.enabled)
+            logger.info('EH11 EQ switch set and readback verified: %s.', result)
+            return {'enabled': result}
+        except Exception as error:
+            logger.warning('EH11 EQ switch failed: %s', error)
+            raise HTTPException(503, str(error)) from error
 
 
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])

@@ -15,6 +15,11 @@ export function parsePacket(bytes: Uint8Array): Packet {
   if (bytes.length < 7 || bytes[0] !== 0xf1 || bytes[1] !== 0x10 || bytes.length !== ((bytes[2] << 8) | bytes[3]) || bytes.at(-1) !== 0xff) throw new Error('Invalid FiiO response frame.');
   return { command: [bytes[4], bytes[5]], payload: bytes.slice(6, -1), bytes };
 }
+export function parseEqEnabled(bytes: Uint8Array): boolean {
+  const response = parsePacket(bytes);
+  if (bytes.length !== 9 || response.command[0] !== 3 || response.command[1] !== 1 || response.payload[0] !== 1 || (response.payload[1] !== 0 && response.payload[1] !== 1)) throw new Error('Invalid headphone EQ switch state.');
+  return response.payload[1] === 1;
+}
 export function parseEq(bytes: Uint8Array, qScale: QScale): Band[] {
   const response = parsePacket(bytes);
   if (response.command[0] !== 0x03 || response.command[1] !== 0x0d || bytes.length !== 80 || response.payload[0] !== 1 || response.payload[1] !== 0 || response.payload[2] !== 9) throw new Error('Expected the full EH11 ten-band EQ response.');

@@ -94,8 +94,8 @@ describe('Linux navigation cleanup', () => {
   it.each(['start', 'stop'])('closes Bluetooth after a lost live %s reply so a live ID cannot remain stranded', async failure => {
     const fetch = vi.fn(async (path: string) => {
       if (path === `/api/live/${failure}`) throw new Error('Connection lost');
-      const data = path === '/api/status' ? { app: 'fiiofixer', token: 'test-token', hardwareWritesEnabled: true, liveEqEnabled: true }
-        : path === '/api/connect' ? { connectionId: 'owned' } : path === '/api/live/start' ? { liveId: 'live' } : {};
+      const data = path === '/api/status' ? { app: 'fiiofixer', token: 'test-token', hardwareWritesEnabled: true, liveEqEnabled: true, eqSwitchEnabled: true }
+        : path === '/api/connect' ? { connectionId: 'owned' } : path === '/api/live/start' ? { liveId: 'live', enabled: true } : {};
       return { ok: true, json: async () => data };
     });
     vi.stubGlobal('fetch', fetch);

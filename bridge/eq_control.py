@@ -7,6 +7,7 @@ import tempfile
 
 READ_EQ = bytes.fromhex('f110000a030d010009ff')
 WRITE_ACK = bytes.fromhex('f1100008130d01ff')
+READ_ENABLED = bytes.fromhex('f1100008030101ff')
 
 
 class StaleEqError(ValueError):
@@ -15,6 +16,38 @@ class StaleEqError(ValueError):
 
 class ApplyError(RuntimeError):
     pass
+
+
+async def read_enabled(exchange):
+    reply = await exchange(READ_ENABLED)
+    if len(reply) != 9 or reply[:7] != bytes.fromhex('f1100009030101') or reply[7] not in (0, 1) or reply[8] != 255:
+        raise ApplyError('EH11 returned an invalid EQ enable state.')
+    return reply[7] == 1
+
+
+async def set_enabled(exchange, enabled):
+    before = await read_enabled(exchange)
+    if before == enabled:
+        return enabled
+    command = bytes.fromhex('f1100009130101') + bytes([int(enabled), 255])
+    try:
+        reply = await exchange(command)
+        if reply != command:
+            raise ApplyError('EH11 EQ switch acknowledgement did not match.')
+        if await read_enabled(exchange) != enabled:
+            raise ApplyError('EH11 EQ switch did not reach the requested state.')
+        return enabled
+    except Exception as error:
+        # A lost ACK can still mean activation reached hardware. Restore the
+        # actual initial switch state before returning a failed operation.
+        try:
+            if await read_enabled(exchange) != before:
+                restore = bytes.fromhex('f1100009130101') + bytes([int(before), 255])
+                if await exchange(restore) != restore or await read_enabled(exchange) != before:
+                    raise ApplyError('EQ switch restoration failed.')
+        except Exception as restore_error:
+            raise ApplyError('EQ switch failed and its original state could not be restored. Reconnect and check Headphone EQ.') from restore_error
+        raise ApplyError(f'EQ switch failed; original state restored. {error}') from error
 
 
 def validate_eq(data, writable=False):
@@ -35,6 +68,13 @@ def band_write(index, record):
     return bytes.fromhex('f1100011130d01') + bytes([index, index]) + record + b'\xff'
 
 
+def curve_write(eq):
+    # The two indices are a range. One 80-byte command updates all ten records.
+    command = bytearray(eq)
+    command[4] = 0x13
+    return bytes(command)
+
+
 def save_backup(before):
     directory = Path.home() / '.local/share/fiiofixer/backups'
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -53,31 +93,30 @@ async def apply_eq(exchange, baseline, target, backup=save_backup):
     validate_eq(before)
     if before != baseline:
         raise StaleEqError('Headphone EQ changed. Read EQ again before applying your draft.')
+    enabled_before = await read_enabled(exchange)
     changed = [i for i in range(10) if before[9+i*7:16+i*7] != target[9+i*7:16+i*7]]
-    if not changed:
+    if not changed and enabled_before:
         return before
     backup(before)  # Failure to save a backup must prevent every hardware write.
-    attempted = []
-    expected = bytearray(before)
-
     async def restore():
-        for index in reversed(attempted):
-            at = 9+index*7
-            if await exchange(band_write(index, before[at:at+7])) != WRITE_ACK:
+        # If a transport rejects the packet before sending, there is nothing to rewrite.
+        if await exchange(READ_EQ) != before:
+            if await exchange(curve_write(before)) != WRITE_ACK:
                 raise ApplyError('Restore acknowledgement did not match.')
         if await exchange(READ_EQ) != before:
             raise ApplyError('Restore readback did not match.')
+        await set_enabled(exchange, enabled_before)
+        if await read_enabled(exchange) != enabled_before:
+            raise ApplyError('Restored EQ switch did not match.')
 
     try:
-        for index in changed:
-            at = 9+index*7
-            attempted.append(index)  # A missing ACK can still mean the write reached the device.
-            if await exchange(band_write(index, target[at:at+7])) != WRITE_ACK:
-                raise ApplyError(f'Band {index+1} acknowledgement did not match.')
-            expected[at:at+7] = target[at:at+7]
-            if await exchange(READ_EQ) != bytes(expected):
-                raise ApplyError(f'Band {index+1} readback did not match. Apply stopped.')
-        return bytes(expected)
+        if changed:
+            if await exchange(curve_write(target)) != WRITE_ACK:
+                raise ApplyError('EQ curve acknowledgement did not match.')
+            if await exchange(READ_EQ) != target:
+                raise ApplyError('Full EQ readback did not match. Apply stopped.')
+        await set_enabled(exchange, True)
+        return target
     except (Exception, asyncio.CancelledError) as error:
         try:
             await asyncio.shield(restore())

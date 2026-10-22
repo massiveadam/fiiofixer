@@ -6,7 +6,7 @@ import type { Band, EqSettings, Preset } from './eq';
 import { Graph } from './Graph';
 import { LiveEqWriter } from './liveEq';
 import { HARDWARE_BACKUP_KEY, hardwareTarget, readHardwareBackup } from './hardware';
-import { parseEq } from './protocol';
+import { parseEq, parseEqEnabled } from './protocol';
 import type { QScale } from './protocol';
 import { bluetoothSupport, BridgeRequestError, connectBrowser, DemoTransport, errorMessage, LinuxBridge } from './transport';
 import type { BridgeDevice, LiveConnection, LogEntry, Transport } from './transport';
@@ -37,6 +37,7 @@ export function App() {
   const [connection, setConnection] = useState<Connection>({ kind: 'offline' });
   const [activity, setActivity] = useState<Activity>('idle');
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [eqEnabled, setEqEnabled] = useState<boolean | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [notice, setNotice] = useState(library.error ?? initialDraft.error ?? (initialDraft.restored ? 'Draft restored.' : ''));
   const [error, setError] = useState<string | null>(library.error ?? initialDraft.error);
@@ -105,6 +106,7 @@ export function App() {
     void run('applying', async () => { try { await stopLive(); } finally { transport?.disconnect(); } });
   }
   function lostConnection(): void {
+    setEqEnabled(null);
     void liveWriter.current?.stop(); liveWriter.current = null; liveConnection.current = null;
     setLiveState('off'); setLivePending(false);
     session.current = null; setConnection({ kind: 'offline' }); setSnapshot(null); setDemoVerified(false);
@@ -120,7 +122,9 @@ export function App() {
   async function readDevice(transport: Transport, initial = false): Promise<void> {
     const raw = transport.kind === 'demo' ? null : await transport.request([0x03, 0x0d], [1, 0, 9]);
     const next = transport.kind === 'demo' ? await transport.read() : { bands: parseEq(raw ?? new Uint8Array(), qScale), preampDb: null };
+    const enabled = transport.kind === 'demo' ? null : parseEqEnabled(await transport.request([3, 1], [1]));
     if (session.current !== transport) return;
+    setEqEnabled(enabled);
     setSnapshot({ ...next, at: new Date().toISOString(), raw });
     if (initial) {
       if (!sameBands(bandsRef.current, next.bands) || preampRef.current !== (next.preampDb ?? 0)) checkpoint();
@@ -128,7 +132,7 @@ export function App() {
       setProfileName(transport.kind === 'demo' ? 'Demo starting point' : 'Headphone EQ');
       draftTouched.current = false;
     }
-    setNotice(transport.kind === 'demo' ? 'Demo EQ loaded.' : initial ? 'Headphone EQ loaded.' : 'EQ read.');
+    setNotice(transport.kind === 'demo' ? 'Demo EQ loaded.' : enabled === false ? 'Headphone EQ is off. Switch it on or apply EQ to hear changes.' : initial ? 'Headphone EQ loaded.' : 'EQ read.');
   }
   async function attach(transport: Transport): Promise<void> {
     session.current = transport; setConnection({ kind: 'connected', transport });
@@ -165,6 +169,7 @@ export function App() {
         let raw: Uint8Array;
         try { raw = await transport.apply(baseline, target); }
         catch (error) {
+          setEqEnabled(null);
           // A rejected request sent no writes. Preserve the existing restore point.
           if (error instanceof BridgeRequestError && error.status >= 400 && error.status < 500) {
             if (previousBackup === null) localStorage.removeItem(HARDWARE_BACKUP_KEY);
@@ -175,6 +180,7 @@ export function App() {
         }
         if (session.current !== transport) return;
         const next = parseEq(raw, qScale);
+        setEqEnabled(true);
         setSnapshot({ bands: next, preampDb: null, raw, at: new Date().toISOString() });
         setBands(copyBands(next));
         setNotice('Applied. Full EQ readback verified.');
@@ -194,6 +200,18 @@ export function App() {
     setLiveState('stopping');
     try { await writer?.stop(); await active?.stop(); }
     finally { setLiveState('off'); setLivePending(false); }
+  }
+
+  async function toggleHeadphoneEq(): Promise<void> {
+    const transport = session.current;
+    if (!transport || transport.kind !== 'linux' || eqEnabled === null || liveState !== 'off') return;
+    await run('applying', async () => {
+      try {
+        const enabled = await transport.setEqEnabled(!eqEnabled);
+        if (session.current !== transport) return;
+        setEqEnabled(enabled); setNotice(`Headphone EQ ${enabled ? 'on' : 'off'}.`);
+      } catch (error) { setEqEnabled(null); throw error; }
+    });
   }
 
   async function toggleLive(): Promise<void> {
@@ -219,6 +237,7 @@ export function App() {
       }
       if (session.current !== transport) { await active.stop(); return; }
       setHardwareBackup(baseline);
+      setEqEnabled(true);
       liveConnection.current = active;
       liveWriter.current = new LiveEqWriter(baseline,
         (before, target) => active.apply(before, target),
@@ -228,6 +247,7 @@ export function App() {
         },
         error => {
           if (session.current !== transport) return;
+          setEqEnabled(null);
           setSnapshot(null);
           const message = `Live EQ stopped. ${errorMessage(error)}`;
           setError(message); setNotice(message);
@@ -327,11 +347,11 @@ export function App() {
           </div>
           <div className="gain-slider"><span>-12 dB</span><input aria-label="Selected band gain" type="range" min="-12" max="12" step="0.1" value={Math.max(-12, Math.min(12, current.gain))} disabled={busy || current.type === 'lowPass' || current.type === 'highPass'} onPointerDown={checkpoint} onKeyDown={event => { if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) checkpoint(); }} onChange={event => edit(selected, { gain: Number(event.target.value) })}/><span>+12 dB</span></div>
           <div className="preset-options"><label className="filter-toggle"><button type="button" role="switch" aria-label="Selected filter enabled" aria-checked={current.enabled} className={`toggle ${current.enabled ? 'on' : ''}`} disabled={busy || liveState !== 'off'} onClick={() => { checkpoint(); edit(selected, { enabled: !current.enabled }); }}><i/></button>Filter {current.enabled ? 'on' : 'off'}</label><NumberControl label="Preset preamp" unit="dB" value={preampDb} min={-100} max={40} step={0.1} disabled={busy || liveState !== 'off'} onCommit={checkpoint} onChange={value => { setPreampDb(value); draftTouched.current = true; setDemoVerified(false); }}/><p>Stored with preset; not sent to headphones.</p></div>
-          <div className="eq-actions"><label className="live-control"><button type="button" role="switch" aria-label="Live EQ" aria-checked={liveState === 'on'} className={`toggle ${liveState === 'on' ? 'on' : ''}`} disabled={busy || liveState === 'stopping' || connection.kind !== 'connected' || connection.transport.kind !== 'linux'} onClick={() => void toggleLive()}><i/></button>Live EQ</label><p className="draft-note">{bands.some(band => Math.abs(band.gain) > 12) ? 'Imported gain exceeds the ±12 dB hardware range.' : liveState === 'on' ? (livePending ? 'Updating…' : 'Edits are live.') : isDemo ? (demoVerified && !changed ? 'Demo readback matches.' : 'Apply to test readback.') : connection.kind === 'connected' && connection.transport.kind === 'linux' ? 'Backs up EQ and checks readback.' : 'Connect with the Linux helper to apply EQ.'}</p><button className="button primary apply-button" onClick={() => void apply()} disabled={busy || liveState !== 'off' || connection.kind !== 'connected' || connection.transport.kind === 'browser' || !changed}>{activity === 'applying' ? <LoaderCircle className="spin" size={17}/> : <Check size={17}/>} {activity === 'applying' ? 'Verifying…' : isDemo ? 'Apply in demo' : 'Apply to headphones'}</button></div>
+          <div className="eq-actions"><label className="live-control"><button type="button" role="switch" aria-label="Headphone EQ" aria-checked={eqEnabled === true} className={`toggle ${eqEnabled === true ? 'on' : ''}`} disabled={busy || eqEnabled === null || liveState !== 'off' || connection.kind !== 'connected' || connection.transport.kind !== 'linux'} onClick={() => void toggleHeadphoneEq()}><i/></button>Headphone EQ{eqEnabled === null ? '' : eqEnabled ? ' on' : ' off'}</label><label className="live-control"><button type="button" role="switch" aria-label="Live EQ" aria-checked={liveState === 'on'} className={`toggle ${liveState === 'on' ? 'on' : ''}`} disabled={busy || liveState === 'stopping' || connection.kind !== 'connected' || connection.transport.kind !== 'linux'} onClick={() => void toggleLive()}><i/></button>Live EQ</label><p className="draft-note">{bands.some(band => Math.abs(band.gain) > 12) ? 'Imported gain exceeds the ±12 dB hardware range.' : liveState === 'on' ? (livePending ? 'Updating…' : 'Edits are live.') : isDemo ? (demoVerified && !changed ? 'Demo readback matches.' : 'Apply to test readback.') : connection.kind === 'connected' && connection.transport.kind === 'linux' ? eqEnabled === false ? 'Apply also enables headphone EQ.' : 'Changes apply together.' : 'Connect with the Linux helper to apply EQ.'}</p><button className="button primary apply-button" onClick={() => void apply()} disabled={busy || liveState !== 'off' || connection.kind !== 'connected' || connection.transport.kind === 'browser' || (!changed && eqEnabled !== false)}>{activity === 'applying' ? <LoaderCircle className="spin" size={17}/> : <Check size={17}/>} {activity === 'applying' ? 'Verifying…' : isDemo ? 'Apply in demo' : 'Apply to headphones'}</button></div>
         </section>
         <section className="utility-row" aria-label="EQ actions"><button className="button" disabled={busy || liveState !== 'off' || connection.kind === 'offline'} onClick={() => { const active = session.current; if (active) void run('reading', () => readDevice(active)); }}><ArrowDownToLine size={16}/>Read EQ</button><button className="button" disabled={busy || !snapshot || !changed} onClick={() => { if (snapshot) replaceDraft(snapshot.bands, isDemo ? 'Demo EQ' : 'Headphone EQ', snapshot.preampDb ?? 0); }}>Use read EQ</button><button className="button" disabled={busy || !hardwareBackup} onClick={() => { if (hardwareBackup) { replaceDraft(parseEq(hardwareBackup, qScale), 'Previous headphone EQ'); setNotice('Previous EQ loaded. Apply to restore.'); } }}>Previous EQ</button><span className="utility-spacer"/><button className="button" disabled={busy} onClick={saveDialog}><Plus size={16}/>Save preset</button><button className="button" onClick={() => openDialog('export')}><ArrowUpFromLine size={16}/>Export EQ</button></section>
         {(busy || error || notice) && <div className={`notice ${error ? 'error' : ''}`} role={error ? 'alert' : 'status'}>{busy && <LoaderCircle className="spin" size={16}/>}<span>{busy ? ({ connecting: 'Connecting…', scanning: 'Scanning…', reading: 'Reading EQ…', applying: 'Verifying…', idle: notice }[activity]) : error ?? notice}</span>{removedPreset && !busy && <button className="text-button" onClick={undoRemove}>Undo delete</button>}</div>}
-        <details className="diagnostics"><summary>Diagnostics<ChevronDown size={15}/></summary><div className="diagnostics-body"><p>Q uses the selected interpretation. Linux writes verify raw bytes; Q scaling and power-cycle persistence still need checking.</p><div className="diagnostic-tools"><label>Q interpretation<select aria-label="Q interpretation" value={qScale} disabled={busy || isDemo || liveState !== 'off'} onChange={event => changeQScale(event.target.value === '10' ? 10 : 100)}><option value="100">raw ÷ 100, current reference</option><option value="10">raw ÷ 10, older notes</option></select></label><button className="button" onClick={() => download('fiiofixer-diagnostics.json', JSON.stringify({ app: 'fiiofixer', version: '0.4.0', generatedAt: new Date().toISOString(), hardwareWritesEnabled: connection.kind === 'connected' && connection.transport.kind === 'linux', mode: connection.kind === 'connected' ? connection.transport.kind : 'offline', qDivisor: qScale, snapshot: snapshot ? { at: snapshot.at, bands: snapshot.bands, raw: snapshot.raw ? Array.from(snapshot.raw) : null } : null, logs }, null, 2))}><ArrowDownToLine size={15}/>Download log</button></div><pre className="log-output" aria-label="Connection log">{logs.length ? logs.map(entry => `${entry.time.slice(11, 23)} ${entry.direction.padEnd(8)} ${entry.message}`).join('\n') : 'No Bluetooth traffic.'}</pre></div></details>
+        <details className="diagnostics"><summary>Diagnostics<ChevronDown size={15}/></summary><div className="diagnostics-body"><p>Q uses the selected interpretation. Linux verifies the curve and headphone EQ activation; Q scaling and power-cycle persistence still need checking.</p><div className="diagnostic-tools"><label>Q interpretation<select aria-label="Q interpretation" value={qScale} disabled={busy || isDemo || liveState !== 'off'} onChange={event => changeQScale(event.target.value === '10' ? 10 : 100)}><option value="100">raw ÷ 100, current reference</option><option value="10">raw ÷ 10, older notes</option></select></label><button className="button" onClick={() => download('fiiofixer-diagnostics.json', JSON.stringify({ app: 'fiiofixer', version: '0.5.0', generatedAt: new Date().toISOString(), hardwareWritesEnabled: connection.kind === 'connected' && connection.transport.kind === 'linux', mode: connection.kind === 'connected' ? connection.transport.kind : 'offline', qDivisor: qScale, headphoneEqEnabled: eqEnabled, snapshot: snapshot ? { at: snapshot.at, bands: snapshot.bands, raw: snapshot.raw ? Array.from(snapshot.raw) : null } : null, logs }, null, 2))}><ArrowDownToLine size={15}/>Download log</button></div><pre className="log-output" aria-label="Connection log">{logs.length ? logs.map(entry => `${entry.time.slice(11, 23)} ${entry.direction.padEnd(8)} ${entry.message}`).join('\n') : 'No Bluetooth traffic.'}</pre></div></details>
       </main>
     </div>
     <dialog aria-labelledby="dialog-title" ref={modalRef} className="modal" onCancel={() => setDialog(null)} onClick={event => { if (event.target === event.currentTarget) { const box = event.currentTarget.getBoundingClientRect(); if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) setDialog(null); } }}>
@@ -352,7 +372,7 @@ export function App() {
         void file.text().then(text => { setImportText(text); setImportName(file.name.replace(/\.(txt|json)$/i, '').slice(0, 60)); setError(null); }).catch(() => setError('Could not read the file.'));
       }}/></label><label className="modal-label">Preset text<textarea autoFocus aria-label="Preset text" rows={8} maxLength={100000} required value={importText} onChange={event => setImportText(event.target.value)} placeholder={'Preamp: -3 dB\nFilter 1: ON PK Fc 100 Hz Gain -2 dB Q 0.71'}/></label>{error && <p className="modal-error" role="alert">{error}</p>}<button className="button primary modal-main" type="submit">Import EQ</button></form>}
       {dialog === 'library' && <><h2 id="dialog-title">Library backup</h2><p>Move saved presets to another browser or computer.</p><button className="button primary modal-main" onClick={() => download('fiiofixer-library.json', exportLibrary(presets))}><ArrowDownToLine size={16}/>Back up {presets.length} {presets.length === 1 ? 'preset' : 'presets'}</button><label className="file-import-label">Restore backup<input type="file" aria-label="Restore library backup" accept=".json,application/json" disabled={busy} onChange={event => { const file = event.target.files?.[0]; if (file) void restoreLibrary(file); event.target.value = ''; }}/></label><p>Restoring adds presets. Existing presets stay.</p>{error && <p className="modal-error" role="alert">{error}</p>}</>}
-      {dialog === 'help' && <><h2 id="dialog-title">FiiOFixer</h2><h3>Install</h3><p>Use your browser menu's Install app or Add to home screen. The editor works offline after the first visit.</p><p><a className="button" href={`${REPO_URL}/releases/latest`} target="_blank" rel="noreferrer"><Download size={16}/>Linux desktop package</a></p><p>Linux Bluetooth needs the desktop package. Android Chrome connects directly from the shared link.</p><h3>Move presets</h3><p>Save your EQ, then use Library backup to transfer your saved presets. Drafts save automatically in this browser.</p><h3>Share</h3><p><a href={WEB_URL} target="_blank" rel="noreferrer">massiveadam.github.io/fiiofixer</a></p><button className="button" onClick={() => { void navigator.clipboard.writeText(WEB_URL).then(() => { setNotice('App link copied.'); setDialog(null); }).catch(() => setError('Clipboard unavailable. Copy the link above.')); }}><Copy size={15}/>Copy app link</button><h3>Current limits</h3><p>Linux supports Live EQ and manual apply within ±12 dB using peaking and shelf filters. Preamp, filter bypass and pass filters are not supported on hardware. Android supports reads only. Q scaling and power-cycle persistence need checking.</p><p><a href={REPO_URL} target="_blank" rel="noreferrer">Source & setup</a> · <a href={`${import.meta.env.BASE_URL}third-party-notices.txt`} target="_blank" rel="noreferrer">Licenses</a> · v0.4.0 · Independent project, not affiliated with FiiO.</p>{error && <p className="modal-error" role="alert">{error}</p>}</>}
+      {dialog === 'help' && <><h2 id="dialog-title">FiiOFixer</h2><h3>Install</h3><p>Use your browser menu's Install app or Add to home screen. The editor works offline after the first visit.</p><p><a className="button" href={`${REPO_URL}/releases/latest`} target="_blank" rel="noreferrer"><Download size={16}/>Linux desktop package</a></p><p>Linux Bluetooth needs the desktop package. Android Chrome connects directly from the shared link.</p><h3>Move presets</h3><p>Save your EQ, then use Library backup to transfer your saved presets. Drafts save automatically in this browser.</p><h3>Share</h3><p><a href={WEB_URL} target="_blank" rel="noreferrer">massiveadam.github.io/fiiofixer</a></p><button className="button" onClick={() => { void navigator.clipboard.writeText(WEB_URL).then(() => { setNotice('App link copied.'); setDialog(null); }).catch(() => setError('Clipboard unavailable. Copy the link above.')); }}><Copy size={15}/>Copy app link</button><h3>Current limits</h3><p>Linux supports Live EQ and manual apply within ±12 dB using peaking and shelf filters. Preamp, filter bypass and pass filters are not supported on hardware. Android supports reads only. Q scaling and power-cycle persistence need checking.</p><p><a href={REPO_URL} target="_blank" rel="noreferrer">Source & setup</a> · <a href={`${import.meta.env.BASE_URL}third-party-notices.txt`} target="_blank" rel="noreferrer">Licenses</a> · v0.5.0 · Independent project, not affiliated with FiiO.</p>{error && <p className="modal-error" role="alert">{error}</p>}</>}
     </dialog>
   </div>;
 }

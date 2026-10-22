@@ -16,6 +16,7 @@ export interface LinuxConnection extends DeviceTransport {
   kind: 'linux';
   apply(baseline: Uint8Array, target: Uint8Array): Promise<Uint8Array>;
   startLive(baseline: Uint8Array): Promise<LiveConnection>;
+  setEqEnabled(enabled: boolean): Promise<boolean>;
 }
 export interface LiveConnection {
   apply(baseline: Uint8Array, target: Uint8Array): Promise<Uint8Array>;
@@ -119,6 +120,7 @@ export class LinuxBridge {
   private token: string | null = null;
   private writable = false;
   private liveSupported = false;
+  private eqSwitchSupported = false;
   async status(): Promise<void> {
     const response = await fetch('/api/status', { signal: AbortSignal.timeout(2000) });
     if (!response.ok) throw new Error('Linux Bluetooth helper is unavailable. Run npm run linux.');
@@ -127,6 +129,7 @@ export class LinuxBridge {
     this.token = data.token;
     this.writable = data.hardwareWritesEnabled === true;
     this.liveSupported = data.liveEqEnabled === true;
+    this.eqSwitchSupported = data.eqSwitchEnabled === true;
   }
   async post(path: string, body: unknown, timeout = 12000): Promise<unknown> {
     if (!this.token) await this.status();
@@ -170,12 +173,15 @@ export class LinuxBridge {
     };
     const applyTarget = async (baseline: Uint8Array, target: Uint8Array, liveId?: string): Promise<Uint8Array> => {
         if (!this.writable) throw new Error('Update the Linux helper to enable checked EQ writes.');
+        if (!this.eqSwitchSupported) throw new Error('Update the Linux helper to verify headphone EQ activation.');
         if (closed) throw new Error('The Linux Bluetooth session is closed. Reconnect first.');
         if (busy) throw new Error('Another Bluetooth request is still in progress.');
         busy = true;
         try {
-          log(logger, 'info', 'Applying EQ with backup and full readback after every changed band.');
-          const reply = readReply(await this.post('apply', { connectionId, baseline: Array.from(baseline), target: Array.from(target), liveId }, 240000));
+          log(logger, 'info', 'Applying the complete curve in one command, with backup, readback and EQ activation.');
+          const result = await this.post('apply', { connectionId, baseline: Array.from(baseline), target: Array.from(target), liveId }, 240000);
+          if (!isRecord(result) || result.enabled !== true) throw new Error('Update the Linux helper to verify EQ activation.');
+          const reply = readReply(result);
           if (reply.length !== target.length || !reply.every((byte, i) => byte === target[i])) throw new Error('Apply response did not match the requested EQ. Read EQ before continuing.');
           log(logger, 'received', hex(reply));
           return reply;
@@ -183,14 +189,25 @@ export class LinuxBridge {
     };
     return {
       kind: 'linux', name: device.name, disconnect,
+      setEqEnabled: async enabled => {
+        if (!this.eqSwitchSupported) throw new Error('Update the Linux helper to control headphone EQ.');
+        if (closed || busy) throw new Error('Bluetooth is unavailable or busy. Try again when the current request finishes.');
+        busy = true;
+        try {
+          const result = await this.post('eq-enabled', { connectionId, enabled });
+          if (!isRecord(result) || result.enabled !== enabled) throw new Error('Headphone EQ switch readback did not match. Read EQ before continuing.');
+          log(logger, 'info', `Headphone EQ ${enabled ? 'on' : 'off'}, device state verified.`);
+          return enabled;
+        } finally { busy = false; }
+      },
       apply: applyTarget,
       startLive: async baseline => {
-        if (!this.liveSupported) throw new Error('Update the Linux helper to use Live EQ.');
+        if (!this.liveSupported || !this.eqSwitchSupported) throw new Error('Update the Linux helper to use Live EQ with verified activation.');
         if (closed || busy) throw new Error('Bluetooth is unavailable or busy. Try again when the current request finishes.');
         busy = true;
         try {
           const started = await this.post('live/start', { connectionId, baseline: Array.from(baseline) });
-          if (!isRecord(started) || typeof started.liveId !== 'string') throw new Error('Invalid Live EQ session. Reconnect before continuing.');
+          if (!isRecord(started) || typeof started.liveId !== 'string' || started.enabled !== true) throw new Error('Invalid Live EQ session. Reconnect before continuing.');
           const liveId = started.liveId;
           let ended = false;
           return {

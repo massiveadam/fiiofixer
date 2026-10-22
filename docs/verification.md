@@ -20,7 +20,7 @@ Use the production build at http://localhost:8787 or the hosted app.
 
 ## Linux package
 
-Run `npm run package:linux`. Extract the archive into a fresh directory, then install using `bash scripts/install-linux.sh --prefix '/tmp/fiiofixer-check/install prefix' --no-service`. Run the installed `bin/fiiofixer --no-browser` and check that `/api/status` identifies `fiiofixer`, version `0.4.0`, and `hardwareWritesEnabled: true`. Never store the response token in evidence.
+Run `npm run package:linux`. Extract the archive into a fresh directory, then install using `bash scripts/install-linux.sh --prefix '/tmp/fiiofixer-check/install prefix' --no-service`. Run the installed `bin/fiiofixer --no-browser` and check that `/api/status` identifies `fiiofixer`, version `0.5.0`, and `hardwareWritesEnabled: true`. Never store the response token in evidence.
 
 Repeat installation to check that updates are safe. Test a regular per-user install with systemd and check that the service is enabled and active. Stop only helper processes created by your verification. The app must still start when the extracted release directory is no longer present.
 
@@ -53,3 +53,11 @@ Start Live EQ, move a gain repeatedly, and compare final device readback against
 On 2026-10-22, the installed Linux UI loaded actual EQ over an existing saved draft; Undo recovered that draft with zero hardware writes. Live mode accepted repeated temporary gain edits while the editor stayed enabled. Twenty rapid intermediate edits were coalesced, at most one apply request was in flight, and the last checked readback matched the final -2 dB target. Complete readback changed only the intended gain bytes. The starting browser backup stayed identical and the helper created exactly one backup for the live session. Previous EQ restored all original bytes. Turning live off immediately after another edit canceled that unsent target; a fresh final EQ read still matched the full starting EQ. The test connection was released. The original EQ here means the current device state at this session’s start, including any user changes made since earlier experiments.
 
 The release passed 40 TypeScript and 27 Python tests plus the production build. Q semantics, acoustic response and flash/power-cycle behavior remain outside this verification.
+
+## v0.5 audible verification
+
+The user reported that stored/readback-verified filters did not affect sound. A read confirmed global EQ off. After verifying the actual nine-byte state-echo ACK and enabling global EQ, the user confirmed the effect of a temporary strong treble-cut curve. All filter values survived the switch unchanged. We then tested an 80-byte all-band update with exact ACK and complete readback; the user repeated the listening comparison and confirmed a direct switch, without a fade, rolling bands or a mute. Their pre-test filters were restored with one command and EQ left on.
+
+Regression checks cover exact global status/ACK frames, rejection of the old speculative ACK, activation after matching or changed filters, rollback of the curve and original bypass state after activation failure, and live start backup/activation ordering. Complete-curve writes replace sequential band writes in transaction tests. These are in addition to the live queue, stale session and storage checks from earlier versions.
+
+The v0.5 production build passed 41 TypeScript and 40 Python tests. The installed UI read and loaded actual EQ on connection, displayed the verified global state, switched EQ off, and re-enabled it with an unchanged Apply. Starting Live EQ from off enabled processing; a temporary -1 dB band edit matched the complete expected readback. Previous EQ restored every original byte with EQ still on. The app update retained its saved draft. Desktop and 360 px layouts were checked.

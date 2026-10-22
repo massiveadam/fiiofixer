@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FrameDecoder, packet, parseEq, parsePacket } from './protocol';
+import { FrameDecoder, packet, parseEq, parseEqEnabled, parsePacket } from './protocol';
 
 // Synthetic framing fixtures. They do not prove any hardware behavior or Q scale.
 function eqReply(): Uint8Array {
@@ -16,6 +16,12 @@ function eqReply(): Uint8Array {
   return packet([3, 13], Array.from(values));
 }
 describe('FiiO read framing', () => {
+  it('reads the global headphone EQ switch separately from stored filters', () => {
+    expect(parseEqEnabled(packet([3,1],[1,0]))).toBe(false);
+    expect(parseEqEnabled(packet([3,1],[1,1]))).toBe(true);
+    expect(() => parseEqEnabled(packet([3,1],[1,2]))).toThrow();
+    expect(() => parseEqEnabled(packet([19,1],[1,1]))).toThrow();
+  });
   it('matches the documented read-all query byte for byte', () => {
     expect(Array.from(packet([3, 13], [1, 0, 9]))).toEqual([0xf1, 0x10, 0, 10, 3, 13, 1, 0, 9, 0xff]);
   });

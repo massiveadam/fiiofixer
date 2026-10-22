@@ -2,6 +2,7 @@
 import unittest
 from unittest.mock import Mock
 from eq_control import READ_EQ, WRITE_ACK, ApplyError, StaleEqError, apply_eq
+from test_enabled import EqSwitch
 
 
 def baseline():
@@ -16,15 +17,18 @@ class Headphones:
         self.bad_ack = False
         self.bad_readback = False
         self.drop = False
+        self.switch = EqSwitch(True)
 
     async def exchange(self, frame):
         if self.drop:raise ConnectionError('Disconnected')
         if frame == READ_EQ:return self.eq
+        if tuple(frame[4:6]) in ((3,1),(19,1)):
+            return await self.switch.exchange(frame)
         self.writes.append(frame)
-        index = frame[7]
-        if frame[8] != index:raise AssertionError('Index must be repeated')
-        at = 9+index*7
-        self.eq = self.eq[:at]+frame[9:16]+self.eq[at+7:]
+        first, last = frame[7:9]
+        if not 0 <= first <= last <= 9 or len(frame) != 10+7*(last-first+1):raise AssertionError('Invalid band range')
+        at, end = 9+first*7, 9+(last+1)*7
+        self.eq = self.eq[:at]+frame[9:-1]+self.eq[end:]
         if self.bad_readback:
             self.bad_readback = False
             self.eq = self.eq[:at]+bytes.fromhex('ffec')+self.eq[at+2:]
@@ -40,13 +44,15 @@ class ApplyTests(unittest.IsolatedAsyncioTestCase):
         result[72:74] = (-10).to_bytes(2,'big',signed=True)
         return bytes(result)
 
-    async def test_writes_only_changed_band_after_saving_backup(self):
+    async def test_writes_one_complete_curve_after_saving_backup(self):
         device = Headphones()
         backup = Mock(side_effect=lambda _: self.assertEqual(device.writes, []))
         result = await apply_eq(device.exchange, baseline(), self.target(), backup)
         backup.assert_called_once_with(baseline())
         self.assertEqual(result, self.target())
-        self.assertEqual(device.writes, [bytes.fromhex('f1100011130d010909fff603e8004800ff')])
+        self.assertEqual(len(device.writes),1)
+        self.assertEqual(device.writes[0][:9],bytes.fromhex('f1100050130d010009'))
+        self.assertEqual(device.writes[0][9:],self.target()[9:])
 
     async def test_stale_baseline_and_invalid_target_never_write(self):
         device = Headphones();device.eq = self.target()
@@ -70,33 +76,64 @@ class ApplyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(device.eq, baseline())
         self.assertEqual(len(device.writes), 2)
 
-    async def test_readback_mismatch_stops_later_bands_and_restores_original(self):
+    async def test_readback_mismatch_restores_the_original_curve(self):
         device = Headphones();device.bad_readback = True
         target = bytearray(self.target());target[9:11] = (-10).to_bytes(2,'big',signed=True)
         with self.assertRaisesRegex(ApplyError, 'Original EQ restored and verified'):
             await apply_eq(device.exchange, baseline(), bytes(target), Mock())
         self.assertEqual(device.eq, baseline())
-        self.assertEqual([frame[7] for frame in device.writes], [0, 0])
+        self.assertEqual([tuple(frame[7:9]) for frame in device.writes], [(0,9),(0,9)])
 
     async def test_disconnect_reports_that_restoration_could_not_be_verified(self):
         device = Headphones()
         async def exchange(frame):
             reply = await device.exchange(frame)
-            if frame != READ_EQ:device.drop = True
+            if tuple(frame[4:6]) == (19,13):device.drop = True
             return reply
         with self.assertRaisesRegex(ApplyError, 'could not be restored'):
             await apply_eq(exchange, baseline(), self.target(), Mock())
 
-    async def test_second_band_failure_restores_both_attempted_bands_in_reverse(self):
+    async def test_distant_band_changes_are_sent_together(self):
         device = Headphones()
         target = bytearray(self.target()); target[9:11] = (-10).to_bytes(2,'big',signed=True)
+        await apply_eq(device.exchange,baseline(),bytes(target),Mock())
+        self.assertEqual(device.eq,bytes(target))
+        self.assertEqual(len(device.writes),1)
+
+    async def test_apply_activates_eq_even_if_filter_bytes_already_match(self):
+        device = Headphones();device.switch.enabled = False
+        backup = Mock()
+        self.assertEqual(await apply_eq(device.exchange, baseline(), baseline(), backup),baseline())
+        self.assertTrue(device.switch.enabled)
+        self.assertEqual(device.writes,[])
+        backup.assert_called_once_with(baseline())
+
+    async def test_apply_enables_eq_after_new_filters_are_verified(self):
+        device = Headphones();device.switch.enabled = False
+        await apply_eq(device.exchange,baseline(),self.target(),Mock())
+        self.assertEqual(device.eq,self.target())
+        self.assertTrue(device.switch.enabled)
+
+    async def test_activation_failure_restores_filter_bytes_and_original_bypass(self):
+        device = Headphones();device.switch.enabled = False;device.switch.bad_ack = True
+        with self.assertRaisesRegex(ApplyError,'Original EQ restored and verified'):
+            await apply_eq(device.exchange,baseline(),self.target(),Mock())
+        self.assertEqual(device.eq,baseline())
+        self.assertFalse(device.switch.enabled)
+
+    async def test_broken_switch_restore_still_restores_the_original_curve(self):
+        device = Headphones();device.switch.enabled = False
         async def exchange(frame):
-            if frame != READ_EQ and len(device.writes) == 1:device.bad_ack = True
-            return await device.exchange(frame)
-        with self.assertRaisesRegex(ApplyError, 'Original EQ restored and verified'):
-            await apply_eq(exchange, baseline(), bytes(target), Mock())
-        self.assertEqual(device.eq, baseline())
-        self.assertEqual([frame[7] for frame in device.writes], [0, 9, 9, 0])
+            if tuple(frame[4:6]) == (3,1) and device.switch.writes:
+                raise ConnectionError('Switch replies unavailable')
+            reply = await device.exchange(frame)
+            if tuple(frame[4:6]) == (19,1):
+                raise ConnectionError('Switch replies unavailable')
+            return reply
+        with self.assertRaisesRegex(ApplyError, 'could not be restored'):
+            await apply_eq(exchange,baseline(),self.target(),Mock())
+        self.assertEqual(device.eq,baseline())
+        self.assertEqual(len(device.writes),2)
 
 
 if __name__ == '__main__':unittest.main()

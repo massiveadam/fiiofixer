@@ -66,5 +66,23 @@ class LiveApiTests(unittest.TestCase):
             self.assertEqual(self.post('live/stop',{'liveId':first}).status_code,409)
             self.assertEqual(reader.live_id,second)
 
+    def test_live_start_enables_eq_only_after_original_curve_is_backed_up(self):
+        device = Headphones();device.switch.enabled = False
+        with patch.object(reader,'require'), patch.object(reader,'transact',new=AsyncMock(side_effect=device.exchange)), patch('server.save_backup',side_effect=lambda _: self.assertFalse(device.switch.enabled)) as backup:
+            result=self.post('live/start',{'baseline':list(baseline())})
+            self.assertEqual(result.status_code,200)
+            self.assertTrue(result.json()['enabled'])
+            self.assertTrue(device.switch.enabled)
+            self.assertEqual(device.writes,[])
+            backup.assert_called_once_with(baseline())
+
+    def test_live_activation_failure_restores_switch_and_creates_no_live_id(self):
+        device = Headphones();device.switch.enabled=False;device.switch.bad_ack=True
+        with patch.object(reader,'require'), patch.object(reader,'transact',new=AsyncMock(side_effect=device.exchange)), patch('server.save_backup'):
+            result=self.post('live/start',{'baseline':list(baseline())})
+            self.assertEqual(result.status_code,503)
+            self.assertFalse(device.switch.enabled)
+            self.assertIsNone(reader.live_id)
+
 
 if __name__ == '__main__':unittest.main()
